@@ -4,8 +4,8 @@ MAKEFLAGS += --no-builtin-rules
 .SECONDEXPANSION:
 
 
-EXE_SRC := info.c
-SRC := $(EXE_SRC) fail.c
+EXE_SRC := get_info.c mcp2221.c
+SRC := $(EXE_SRC) fail.c info.c
 
 OBJ := $(SRC:%.c=%.o)
 EXE := $(EXE_SRC:%.c=%)
@@ -28,10 +28,14 @@ clean:
 	rm -f $(OBJ) $(EXE)
 
 
-fail.o: fail.h common.h
-info.o: fail.h
+fail.o: common.h fail.h
+get_info.o: common.h fail.h info.h
+info.o: common.h fail.h info.h
+mcp2221.o: common.h fail.h info.h
 
-info: fail.o
+
+get_info: fail.o info.o
+mcp2221: fail.o info.o
 
 
 .DEFAULT_GOAL := all
