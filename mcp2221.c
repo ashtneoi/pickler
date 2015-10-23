@@ -61,6 +61,7 @@ int main(int argc, char** argv)
         if (0 != ioctl(d, HIDIOCGREPORT, &ri))
             fatal_e(E_COMMON, "Can't get report");
 
+        print("Received data:\n");
         for (unsigned int u = 0; u <= 63; ++u) {
             struct hiddev_usage_ref ur = {
                 .report_type = ri.report_type,
@@ -69,8 +70,8 @@ int main(int argc, char** argv)
                 .usage_index = u,
             };
             if (0 != ioctl(d, HIDIOCGUSAGE, &ur))
-                fatal_e(E_RARE, "Can't set value of usage %u", u);
-            printf("Usage %d = 0x%02"PRIX8"\n", u, (uint8_t)ur.value);
+                fatal_e(E_RARE, "Can't get value of usage %u", u);
+            printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)ur.value);
         }
     }
 }
