@@ -61,7 +61,7 @@ int main(int argc, const char** argv)
                 fi.field_index = f;
                 if (0 != ioctl(d, HIDIOCGFIELDINFO, &fi))
                     fatal_e(E_RARE, "Can't get field info");
-                fi.field_index = f;
+                fi.field_index = f; // For some reason it's overwritten.
                 printf("    Field %u:\n", fi.field_index);
                 print_field_info(d, &fi);
             }
