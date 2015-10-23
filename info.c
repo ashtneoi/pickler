@@ -33,15 +33,25 @@ void print_devinfo(int d, const struct hiddev_devinfo* const di)
         printf("Application usage %u:\n", i);
         printf("    type = 0x%04"PRIX16"\n", (uint16_t)ci.type);
         uint16_t usage_page = (uint32_t)ci.usage >> 16;
-        uint16_t usage = (uint32_t)ci.usage & 0xFFFF;
-        printf("    usage = 0x%04"PRIX16", 0x%04"PRIX16"\n", usage_page,
-            usage);
+        uint16_t usage_code = (uint32_t)ci.usage & 0xFFFF;
+        printf("    usage = page 0x%04"PRIX16", code 0x%04"PRIX16"\n",
+            usage_page, usage_code);
         printf("    level = 0x%04"PRIX16"\n", (uint16_t)ci.level);
     }
 }
 
 
-void print_field_info(const struct hiddev_field_info* const fi)
+void print_usage_ref(const struct hiddev_usage_ref* ur)
+{
+    uint16_t usage_page = (uint32_t)ur->usage_code >> 16;
+    uint16_t usage_code = (uint32_t)ur->usage_code & 0xFFFF;
+    printf("            usage = page 0x%04"PRIX16", code 0x%04"PRIX16"\n",
+        usage_page, usage_code);
+    printf("            value = 0x%04"PRIX32"\n", (uint32_t)ur->value);
+}
+
+
+void print_field_info(int d, const struct hiddev_field_info* const fi)
 {
     printf("        maxusage = 0x%04"PRIX32"\n", fi->maxusage);
     printf("        flags = 0x%04"PRIX32"\n", fi->flags);
@@ -54,6 +64,19 @@ void print_field_info(const struct hiddev_field_info* const fi)
     printf("        physical max = %"PRId32"\n", fi->physical_maximum);
     printf("        unit_exponent = 0x%04"PRIX32"\n", fi->unit_exponent);
     printf("        unit = 0x%04"PRIX32"\n", fi->unit);
+
+    for (unsigned int u = 0; u < fi->maxusage; ++u) {
+        struct hiddev_usage_ref ur = {
+            .report_type = fi->report_type,
+            .report_id = fi->report_id,
+            .field_index = fi->field_index,
+            .usage_index = u,
+        };
+        if (0 != ioctl(d, HIDIOCGUCODE, &ur))
+            fatal_e(E_RARE, "Can't get usage code");
+        printf("        Usage %d:\n", u);
+        print_usage_ref(&ur);
+    }
 }
 
 
@@ -90,25 +113,26 @@ int main(int argc, const char** argv)
 
     {
         struct hiddev_report_info ri = {
-            .report_type = HID_REPORT_TYPE_INPUT,
+            .report_type = HID_REPORT_TYPE_OUTPUT,
             .report_id = HID_REPORT_ID_FIRST,
         };
         while (true) {
             if (0 != ioctl(d, HIDIOCGREPORTINFO, &ri))
                 break;
-            printf("Input report %d:\n", ri.report_id);
+            printf("Output report %d:\n", ri.report_id);
             printf("    num_fields = %d\n", ri.num_fields);
 
-            for (unsigned int i = 0; i < ri.num_fields; ++i) {
-                struct hiddev_field_info fi = {
-                    .report_type = ri.report_type,
-                    .report_id = ri.report_id,
-                    .field_index = i,
-                };
+            struct hiddev_field_info fi = {
+                .report_type = ri.report_type,
+                .report_id = ri.report_id,
+            };
+            for (unsigned int f = 0; f < ri.num_fields; ++f) {
+                fi.field_index = f;
                 if (0 != ioctl(d, HIDIOCGFIELDINFO, &fi))
                     fatal_e(E_RARE, "Can't get field info");
-                printf("    Field %u:\n", i);
-                print_field_info(&fi);
+                fi.field_index = f;
+                printf("    Field %u:\n", fi.field_index);
+                print_field_info(d, &fi);
             }
 
             ri.report_id |= HID_REPORT_ID_NEXT;
