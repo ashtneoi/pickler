@@ -15,7 +15,7 @@
 #define E_USAGE 127
 
 
-void print_devinfo(int d, struct hiddev_devinfo* di)
+void print_devinfo(int d, const struct hiddev_devinfo* const di)
 {
     printf("    bustype = %"PRIu32"\n", di->bustype);
     printf("    busnum = %"PRIu32"\n", di->busnum);
@@ -41,7 +41,7 @@ void print_devinfo(int d, struct hiddev_devinfo* di)
 }
 
 
-void print_field_info(struct hiddev_field_info* fi)
+void print_field_info(const struct hiddev_field_info* const fi)
 {
     printf("        maxusage = 0x%04"PRIX32"\n", fi->maxusage);
     printf("        flags = 0x%04"PRIX32"\n", fi->flags);
@@ -57,7 +57,7 @@ void print_field_info(struct hiddev_field_info* fi)
 }
 
 
-int main(int argc, char** argv)
+int main(int argc, const char** argv)
 {
     if (argc != 2)
         fatal(E_USAGE, "Usage: %s DEVICE", argv[0]);
