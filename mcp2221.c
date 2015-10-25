@@ -18,25 +18,31 @@ struct hiddev_usage_ref ur[64];
 struct hiddev_report_info ri;
 
 
-void wait_consume_input(int d)
+bool wait_consume_input(int d)
 {
     struct pollfd pf = {
         .fd = d,
         .events = POLLIN,
     };
 
-    while (true) {
-        int r = poll(&pf, 1, -1);
-        if (r == -1)
-            fatal_e(E_COMMON, "Can't poll() device");
-        else if (r == 1 && pf.revents & POLLIN)
-            break;
-    }
+    int r = poll(&pf, 1, 100);
+    if (r == -1)
+        fatal_e(E_COMMON, "Can't poll() device");
+    else if (r == 0)
+        print("poll() timed out\n");
 
     struct hiddev_event garbage;
-    ssize_t count;
-    while ( !(count == -1 && errno == EAGAIN) )
-        count = read(d, &garbage, sizeof(garbage));
+    bool consumed = false;
+    while (true) {
+        if (-1 == read(d, &garbage, sizeof(garbage))) {
+            if (errno == EAGAIN)
+                break;
+            fatal_e(E_COMMON, "Can't read from device");
+        }
+        consumed = true;
+    }
+
+    return consumed;
 }
 
 
@@ -55,9 +61,13 @@ void send_report(int d)
 
 void communicate(int d)
 {
+    int32_t command = ur[0].value;
+
     send_report(d);
 
     wait_consume_input(d);
+    /*if (!wait_consume_input(d))*/
+        /*fatal(E_RARE, "Didn't consume any input\n");*/
 
     ri.report_type = HID_REPORT_TYPE_INPUT;
     if (0 != ioctl(d, HIDIOCGREPORT, &ri))
@@ -67,6 +77,11 @@ void communicate(int d)
         if (0 != ioctl(d, HIDIOCGUSAGE, &ur[u]))
             fatal_e(E_RARE, "Can't get value of usage %u", u);
     }
+
+    if (ur[0].value != command)
+        fatal(E_RARE, "Command not echoed");
+    else if (ur[1].value != 0)
+        fatal(E_COMMON, "Command failed");
 }
 
 
@@ -98,8 +113,12 @@ struct hiddev_usage_ref* init_report(int d, struct hiddev_report_info* new_ri)
             fatal_e(E_RARE, "Can't get usage code %u", u);
     }
 
-    ur[0].value = 0x51;
+    wait_consume_input(d);
+
+    ur[0].value = 0x10;
     send_report(d);
+
+    wait_consume_input(d);
 
     return ur;
 }
@@ -120,10 +139,20 @@ int main(int argc, char** argv)
         print("Initializing...\n");
         struct hiddev_usage_ref* myur = init_report(d, &myri);
 
+        print("Status/set parameters:\n");
+        myur[0].value = 0x10;
+        myur[3].value = 0x00;
+        communicate(d);
+        for (unsigned int u = 0; u <= 25; ++u)
+            printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)myur[u].value);
+        for (unsigned int u = 46; u <= 55; ++u)
+            printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)myur[u].value);
+
+        print("Read data (read chip settings):\n");
         myur[0].value = 0xB0;
         myur[1].value = 0x00;
         communicate(d);
-        for (unsigned int u = 0; u <= 63; ++u)
+        for (unsigned int u = 0; u <= 13; ++u)
             printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)myur[u].value);
     }
 }
