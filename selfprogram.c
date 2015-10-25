@@ -54,7 +54,7 @@ void verify_fix_gp_settings(int d, struct hiddev_usage_ref* ur)
         }
     }
     if (!correct) {
-        print("GPIO settings are incorrect. Re-writing...\n");
+        print("GP settings are incorrect. Fixing...\n");
 
         // Write flash data (write GP settings) //
 
@@ -65,7 +65,45 @@ void verify_fix_gp_settings(int d, struct hiddev_usage_ref* ur)
             ur[u].value = ref[u - 2];
 
         communicate(d);
+        print("GP settings fixed.\n");
+
+        fatal(E_COMMON,
+            "Now reset the programmer and run this program again.");
     }
+}
+
+
+struct gp {
+    int n_mclr;
+    int clk;
+    int dat;
+    int dat_in;
+};
+
+
+void set_gp(int d, struct hiddev_usage_ref* ur, struct gp* gp)
+{
+    // Set GPIO output values //
+
+    ur[0].value = 0x50; // command
+
+    ur[2].value = 0x01; // set GP0
+    ur[3].value = gp->n_mclr; // GP0 = ~MCLR
+    ur[4].value = 0x00; // don't set GP0 dir
+
+    ur[6].value = 0x01; // set GP1
+    ur[7].value = gp->clk; // GP1 = ISCPCLK
+    ur[8].value = 0x00; // don't set GP1 dir
+
+    ur[9].value = 0x00; // don't set GP2
+    ur[11].value = 0x00; // don't set GP2 dir
+
+    ur[14].value = 0x01; // set GP3
+    ur[15].value = gp->dat; // GP3 = ISCPDAT
+    ur[16].value = 0x01; // set GP3 dir
+    ur[17].value = gp->dat_in; // GP3 dir
+
+    communicate(d);
 }
 
 
@@ -92,5 +130,13 @@ int main(int argc, char** argv)
         }
 
         verify_fix_gp_settings(d, ur);
+
+        struct gp gp = {
+            .n_mclr = 0,
+            .clk = 1,
+            .dat = 1,
+            .dat_in = 0,
+        };
+        set_gp(d, ur, &gp);
     }
 }
