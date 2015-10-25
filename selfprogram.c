@@ -17,6 +17,7 @@
 int verbosity;
 
 
+static
 int process_opts(int argc, char** argv)
 {
     opterr = 0;
@@ -35,6 +36,7 @@ int process_opts(int argc, char** argv)
 }
 
 
+static
 void verify_fix_gp_settings(int d, struct hiddev_usage_ref* ur)
 {
     // Read flash data (read GP settings) //
@@ -81,6 +83,7 @@ struct gp {
 };
 
 
+static
 void set_gp(int d, struct hiddev_usage_ref* ur, struct gp* gp)
 {
     // Set GPIO output values //

@@ -18,7 +18,8 @@ struct hiddev_usage_ref ur[64];
 struct hiddev_report_info ri;
 
 
-static void wait_consume_input(int d)
+static
+void wait_consume_input(int d)
 {
     struct pollfd pf = {
         .fd = d,
