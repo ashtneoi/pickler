@@ -14,34 +14,31 @@
 #include <unistd.h>
 
 
-#define SCALE 1
-
-
-#define T_ENTS 1 * SCALE
+#define T_ENTS 1
 // >= 100 ns
 
-#define T_ENTH 250 * SCALE
+#define T_ENTH 250
 // >= 250 µs
 
-#define T_CKL 1 * SCALE
+#define T_CKL 1
 // >= 100 ns
 
-#define T_CKH 1 * SCALE
+#define T_CKH 1
 // >= 100 ns
 
-#define T_DLY 1 * SCALE
+#define T_DLY 1
 // >= 1 µs
 
-#define T_ERAB 5000 * SCALE
+#define T_ERAB 5000
 // >= 5 ms
 
-#define T_PINTP 2500 * SCALE
+#define T_PINTP 2500
 // >= 2.5 ms
 
-#define T_PINTC 5000 * SCALE
+#define T_PINTC 5000
 // >= 5 ms
 
-#define T_EXIT 1 * SCALE
+#define T_EXIT 1
 // >= 1 µs
 
 
