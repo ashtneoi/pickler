@@ -35,6 +35,40 @@ int process_opts(int argc, char** argv)
 }
 
 
+void verify_fix_gp_settings(int d, struct hiddev_usage_ref* ur)
+{
+    // Read flash data (read GP settings) //
+
+    ur[0].value = 0xB0; // command
+    ur[1].value = 0x01; // command
+
+    communicate(d);
+
+    bool correct = true;
+    uint8_t ref[4] = {0x00, 0x00, 0x01, 0x00};
+    for (unsigned int u = 0; u <= 3; ++u) {
+        if (ref[u] != (uint8_t)ur[u + 4].value) {
+            correct = false;
+            printf("[%d]: 0x%02"PRIX8" should be 0x%02"PRIX8"\n",
+                u, (uint8_t)ur[u + 4].value, ref[u]);
+        }
+    }
+    if (!correct) {
+        print("GPIO settings are incorrect. Re-writing...\n");
+
+        // Write flash data (write GP settings) //
+
+        ur[0].value = 0xB1; // command
+        ur[1].value = 0x01; // command
+
+        for (unsigned int u = 2; u <= 5; ++u)
+            ur[u].value = ref[u - 2];
+
+        communicate(d);
+    }
+}
+
+
 int main(int argc, char** argv)
 {
     int d;
@@ -49,25 +83,14 @@ int main(int argc, char** argv)
     }
 
     {
-        struct hiddev_report_info ri;
-        ri.report_id = 0;
-        v1("Initializing...");
-        struct hiddev_usage_ref* ur = init_report(d, &ri);
+        struct hiddev_usage_ref* ur;
+        {
+            struct hiddev_report_info ri;
+            ri.report_id = 0;
+            v1("Initializing...");
+            ur = init_report(d, &ri);
+        }
 
-        print("Status/set parameters:\n");
-        ur[0].value = 0x10;
-        ur[3].value = 0x00;
-        communicate(d);
-        for (unsigned int u = 0; u <= 25; ++u)
-            printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)ur[u].value);
-        for (unsigned int u = 46; u <= 55; ++u)
-            printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)ur[u].value);
-
-        print("Read data (read chip settings):\n");
-        ur[0].value = 0xB0;
-        ur[1].value = 0x00;
-        communicate(d);
-        for (unsigned int u = 0; u <= 13; ++u)
-            printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)ur[u].value);
+        verify_fix_gp_settings(d, ur);
     }
 }
