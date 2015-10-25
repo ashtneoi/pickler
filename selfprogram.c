@@ -14,6 +14,37 @@
 #include <unistd.h>
 
 
+#define SCALE 1
+
+
+#define T_ENTS 1 * SCALE
+// >= 100 ns
+
+#define T_ENTH 250 * SCALE
+// >= 250 µs
+
+#define T_CKL 1 * SCALE
+// >= 100 ns
+
+#define T_CKH 1 * SCALE
+// >= 100 ns
+
+#define T_DLY 1 * SCALE
+// >= 1 µs
+
+#define T_ERAB 5000 * SCALE
+// >= 5 ms
+
+#define T_PINTP 2500 * SCALE
+// >= 2.5 ms
+
+#define T_PINTC 5000 * SCALE
+// >= 5 ms
+
+#define T_EXIT 1 * SCALE
+// >= 1 µs
+
+
 int verbosity;
 
 
@@ -67,8 +98,8 @@ void verify_fix_gp_settings(int d, struct hiddev_usage_ref* ur)
             ur[u].value = ref[u - 2];
 
         communicate(d);
-        print("GP settings fixed.\n");
 
+        print("GP settings fixed.\n");
         fatal(E_COMMON,
             "Now reset the programmer and run this program again.");
     }
@@ -98,8 +129,8 @@ void set_gp(int d, struct hiddev_usage_ref* ur, struct gp* gp)
     ur[7].value = gp->clk; // GP1 = ISCPCLK
     ur[8].value = 0x00; // don't set GP1 dir
 
-    ur[9].value = 0x00; // don't set GP2
-    ur[11].value = 0x00; // don't set GP2 dir
+    ur[10].value = 0x00; // don't set GP2
+    ur[12].value = 0x00; // don't set GP2 dir
 
     ur[14].value = 0x01; // set GP3
     ur[15].value = gp->dat; // GP3 = ISCPDAT
@@ -107,6 +138,141 @@ void set_gp(int d, struct hiddev_usage_ref* ur, struct gp* gp)
     ur[17].value = gp->dat_in; // GP3 dir
 
     communicate(d);
+}
+
+
+static
+int get_dat(int d, struct hiddev_usage_ref* ur)
+{
+    // Get GPIO values //
+
+    ur[0].value = 0x51; // command
+
+    communicate(d);
+
+    return ur[8].value; // GP3 pin value
+}
+
+
+static
+void send_data(int d, struct hiddev_usage_ref* ur, uint8_t* data, int len)
+{
+    struct gp gp = {0};
+
+    for (int b = len - 1; b >= 0; --b) {
+        gp.dat = data[b];
+        gp.clk = 1;
+        set_gp(d, ur, &gp);
+
+        usleep(T_CKH);
+
+        gp.clk = 0;
+        set_gp(d, ur, &gp);
+
+        usleep(T_CKL);
+    }
+}
+
+
+static
+int get_data(int d, struct hiddev_usage_ref* ur)
+{
+    struct gp gp = {0};
+
+    gp.dat_in = 1;
+    set_gp(d, ur, &gp);
+
+    int n = 0;
+    for (int b = 0; b <= 15; ++b) {
+        gp.clk = 1;
+        set_gp(d, ur, &gp);
+
+        usleep(T_CKH);
+
+        gp.clk = 0;
+        set_gp(d, ur, &gp);
+
+        if (1 <= b && b <= 14)
+            n = (n >> 1) + (get_dat(d, ur) << 13);
+
+        usleep(T_CKL);
+    }
+
+    gp.dat_in = 0;
+    set_gp(d, ur, &gp);
+
+    return n;
+}
+
+
+static
+void pic_enter_lvp(int d, struct hiddev_usage_ref* ur)
+{
+    struct gp gp = {0};
+
+    gp.n_mclr = 1;
+    set_gp(d, ur, &gp);
+
+    usleep(T_ENTS);
+
+    gp.n_mclr = 0;
+    set_gp(d, ur, &gp);
+
+    usleep(T_ENTH);
+
+    uint8_t key[33] = {
+        0, // don't care
+        0, 1, 0, 0,
+        1, 1, 0, 1,
+        0, 1, 0, 0,
+        0, 0, 1, 1,
+        0, 1, 0, 0,
+        1, 0, 0, 0,
+        0, 1, 0, 1,
+        0, 0, 0, 0,
+    };
+    send_data(d, ur, key, lengthof(key));
+}
+
+
+static
+void pic_load_configuration(int d, struct hiddev_usage_ref* ur)
+{
+    uint8_t command[6] = { 0, 0, 0, 0, 0, 0 };
+    send_data(d, ur, command, lengthof(command));
+
+    usleep(T_DLY);
+
+    uint8_t data[16] = {0};
+    send_data(d, ur, data, lengthof(data));
+
+    usleep(T_DLY);
+}
+
+
+static
+void pic_increment_address(int d, struct hiddev_usage_ref* ur)
+{
+    uint8_t command[6] = { 0, 0, 0, 1, 1, 0 };
+    send_data(d, ur, command, lengthof(command));
+
+    usleep(T_DLY);
+}
+
+
+static
+int pic_read_data(int d, struct hiddev_usage_ref* ur)
+{
+    uint8_t command[6] = { 0, 0, 0, 1, 0, 0 };
+    send_data(d, ur, command, lengthof(command));
+
+    usleep(T_DLY);
+
+    int n = get_data(d, ur);
+
+    usleep(T_DLY);
+
+    return n;
 }
 
 
@@ -134,12 +300,15 @@ int main(int argc, char** argv)
 
         verify_fix_gp_settings(d, ur);
 
-        struct gp gp = {
-            .n_mclr = 0,
-            .clk = 1,
-            .dat = 1,
-            .dat_in = 0,
-        };
-        set_gp(d, ur, &gp);
+        pic_enter_lvp(d, ur);
+
+        pic_load_configuration(d, ur);
+
+        for (unsigned int i = 0; i < 6; ++i) {
+            pic_increment_address(d, ur);
+        }
+
+        int data = pic_read_data(d, ur);
+        printf("0x%04"PRIX16"\n", data);
     }
 }
