@@ -1,6 +1,6 @@
 #include "common.h"
 #include "fail.h"
-#include "info.h"
+#include "mcp2221.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -18,28 +18,7 @@ struct hiddev_usage_ref ur[64];
 struct hiddev_report_info ri;
 
 
-int verbosity;
-
-
-int process_opts(int argc, char** argv)
-{
-    opterr = 0;
-    int r;
-    while ((r = getopt(argc, argv, "v")) != -1) {
-        if (r == 'v') {
-            ++verbosity;
-        } else if (r == '?') {
-            fatal(E_COMMON, "Invalid option '%c'", r);
-        } else {
-            fatal(E_RARE, "Impossible situation");
-        }
-    }
-
-    return optind;
-}
-
-
-void wait_consume_input(int d)
+static void wait_consume_input(int d)
 {
     struct pollfd pf = {
         .fd = d,
@@ -98,13 +77,6 @@ void communicate(int d)
 
 struct hiddev_usage_ref* init_report(int d, struct hiddev_report_info* new_ri)
 {
-    {
-        struct hiddev_event garbage;
-        ssize_t count;
-        while ( !(count == -1 && errno == EAGAIN) )
-            count = read(d, &garbage, sizeof(garbage));
-    }
-
     ri = *new_ri;
     ri.report_type = HID_REPORT_TYPE_OUTPUT;
 
@@ -130,42 +102,4 @@ struct hiddev_usage_ref* init_report(int d, struct hiddev_report_info* new_ri)
     communicate(d);
 
     return ur;
-}
-
-
-int main(int argc, char** argv)
-{
-    int d;
-    {
-        int first = process_opts(argc, argv);
-        if (argc - first < 1)
-            fatal(E_USAGE, "Usage: %s [OPTIONS] DEVICE", argv[0]);
-
-        d = open(argv[first], O_RDWR | O_NONBLOCK);
-        if (d == -1)
-            fatal_e(E_COMMON, "Can't open device");
-    }
-
-    {
-        struct hiddev_report_info myri;
-        myri.report_id = 0;
-        v1("Initializing...");
-        struct hiddev_usage_ref* myur = init_report(d, &myri);
-
-        print("Status/set parameters:\n");
-        myur[0].value = 0x10;
-        myur[3].value = 0x00;
-        communicate(d);
-        for (unsigned int u = 0; u <= 25; ++u)
-            printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)myur[u].value);
-        for (unsigned int u = 46; u <= 55; ++u)
-            printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)myur[u].value);
-
-        print("Read data (read chip settings):\n");
-        myur[0].value = 0xB0;
-        myur[1].value = 0x00;
-        communicate(d);
-        for (unsigned int u = 0; u <= 13; ++u)
-            printf("    [%2d] = 0x%02"PRIX8"\n", u, (uint8_t)myur[u].value);
-    }
 }
