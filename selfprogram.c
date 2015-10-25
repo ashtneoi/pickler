@@ -304,11 +304,23 @@ int main(int argc, char** argv)
 
         pic_load_configuration(d, ur);
 
-        for (unsigned int i = 0; i < 6; ++i) {
+        unsigned int addr = 0x8000;
+
+        print("User ID:\n");
+        for (/* */; addr <= 0x8003; ++addr) {
+            printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
+                addr, pic_read_data(d, ur));
             pic_increment_address(d, ur);
         }
 
-        int data = pic_read_data(d, ur);
-        printf("0x%04"PRIX16"\n", data);
+        for (/* */; addr <= 0x8004; ++addr)
+            pic_increment_address(d, ur);
+
+        print("Revision and device ID:\n");
+        for (/* */; addr <= 0x8006; ++addr) {
+            printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
+                addr, pic_read_data(d, ur));
+            pic_increment_address(d, ur);
+        }
     }
 }
