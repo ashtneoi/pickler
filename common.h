@@ -1,6 +1,9 @@
 #pragma once
 
 
+#define _POSIX_C_SOURCE 2
+
+
 #define lengthof(x) (sizeof(x) / sizeof((x)[0]))
 
 

@@ -18,7 +18,28 @@ struct hiddev_usage_ref ur[64];
 struct hiddev_report_info ri;
 
 
-bool wait_consume_input(int d)
+int verbosity;
+
+
+int process_opts(int argc, char** argv)
+{
+    opterr = 0;
+    int r;
+    while ((r = getopt(argc, argv, "v")) != -1) {
+        if (r == 'v') {
+            ++verbosity;
+        } else if (r == '?') {
+            fatal(E_COMMON, "Invalid option '%c'", r);
+        } else {
+            fatal(E_RARE, "Impossible situation");
+        }
+    }
+
+    return optind;
+}
+
+
+void wait_consume_input(int d)
 {
     struct pollfd pf = {
         .fd = d,
@@ -32,22 +53,20 @@ bool wait_consume_input(int d)
         print("poll() timed out\n");
 
     struct hiddev_event garbage;
-    bool consumed = false;
     while (true) {
         if (-1 == read(d, &garbage, sizeof(garbage))) {
             if (errno == EAGAIN)
                 break;
             fatal_e(E_COMMON, "Can't read from device");
         }
-        consumed = true;
     }
-
-    return consumed;
 }
 
 
-void send_report(int d)
+void communicate(int d)
 {
+    int32_t command = ur[0].value;
+
     ri.report_type = HID_REPORT_TYPE_OUTPUT;
     for (unsigned int u = 0; u <= 63; ++u) {
         ur[u].report_type = ri.report_type;
@@ -56,14 +75,6 @@ void send_report(int d)
     }
     if (0 != ioctl(d, HIDIOCSREPORT, &ri))
         fatal_e(E_COMMON, "Can't send report");
-}
-
-
-void communicate(int d)
-{
-    int32_t command = ur[0].value;
-
-    send_report(d);
 
     wait_consume_input(d);
     /*if (!wait_consume_input(d))*/
@@ -116,9 +127,7 @@ struct hiddev_usage_ref* init_report(int d, struct hiddev_report_info* new_ri)
     wait_consume_input(d);
 
     ur[0].value = 0x10;
-    send_report(d);
-
-    wait_consume_input(d);
+    communicate(d);
 
     return ur;
 }
@@ -126,17 +135,21 @@ struct hiddev_usage_ref* init_report(int d, struct hiddev_report_info* new_ri)
 
 int main(int argc, char** argv)
 {
-    if (argc != 2)
-        fatal(E_USAGE, "Usage: %s DEVICE", argv[0]);
+    int d;
+    {
+        int first = process_opts(argc, argv);
+        if (argc - first < 1)
+            fatal(E_USAGE, "Usage: %s [OPTIONS] DEVICE", argv[0]);
 
-    int d = open(argv[1], O_RDWR | O_NONBLOCK);
-    if (d == -1)
-        fatal_e(E_COMMON, "Can't open device");
+        d = open(argv[first], O_RDWR | O_NONBLOCK);
+        if (d == -1)
+            fatal_e(E_COMMON, "Can't open device");
+    }
 
     {
         struct hiddev_report_info myri;
         myri.report_id = 0;
-        print("Initializing...\n");
+        v1("Initializing...");
         struct hiddev_usage_ref* myur = init_report(d, &myri);
 
         print("Status/set parameters:\n");
