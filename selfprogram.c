@@ -8,6 +8,7 @@
 #include <linux/hiddev.h>
 #include <poll.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -45,13 +46,29 @@
 int verbosity;
 
 
+struct opts {
+    bool program_file;
+    bool print_config;
+    bool run;
+    bool test;
+};
+
+
 static
-int process_opts(int argc, char** argv)
+int process_opts(int argc, char** argv, struct opts* opts)
 {
     opterr = 0;
     int r;
-    while ((r = getopt(argc, argv, "v")) != -1) {
-        if (r == 'v') {
+    while ((r = getopt(argc, argv, "fprTv")) != -1) {
+        if (r == 'f') {
+            opts->program_file = true;
+        } else if (r == 'p') {
+            opts->print_config = true;
+        } else if (r == 'r') {
+            opts->run = true;
+        } else if (r == 'T') {
+            opts->test = true;
+        } else if (r == 'v') {
             ++verbosity;
         } else if (r == '?') {
             fatal(E_COMMON, "Invalid option '%c'", optopt);
@@ -152,7 +169,8 @@ int get_dat(int d, struct hiddev_usage_ref* ur)
 
 
 static
-void send_data(int d, struct hiddev_usage_ref* ur, uint8_t* data, int len)
+void send_data_array(int d, struct hiddev_usage_ref* ur, unsigned int* data,
+        int len)
 {
     struct gp gp = {0};
 
@@ -172,15 +190,13 @@ void send_data(int d, struct hiddev_usage_ref* ur, uint8_t* data, int len)
 
 
 static
-int get_data(int d, struct hiddev_usage_ref* ur)
+void send_data(int d, struct hiddev_usage_ref* ur, unsigned int data, int len)
 {
     struct gp gp = {0};
 
-    gp.dat_in = 1;
-    set_gp(d, ur, &gp);
-
-    int n = 0;
-    for (int b = 0; b <= 15; ++b) {
+    for (int b = 0; b < len; ++b) {
+        gp.dat = data & 1;
+        data >>= 1;
         gp.clk = 1;
         set_gp(d, ur, &gp);
 
@@ -189,8 +205,30 @@ int get_data(int d, struct hiddev_usage_ref* ur)
         gp.clk = 0;
         set_gp(d, ur, &gp);
 
-        if (1 <= b && b <= 14)
-            n = (n >> 1) + (get_dat(d, ur) << 13);
+        usleep(T_CKL);
+    }
+}
+
+
+static
+unsigned int get_data(int d, struct hiddev_usage_ref* ur, int len)
+{
+    struct gp gp = {0};
+
+    gp.dat_in = 1;
+    set_gp(d, ur, &gp);
+
+    unsigned int n = 0;
+    for (int b = 0; b < len; ++b) {
+        gp.clk = 1;
+        set_gp(d, ur, &gp);
+
+        usleep(T_CKH);
+
+        gp.clk = 0;
+        set_gp(d, ur, &gp);
+
+        n = (n >> 1) + (get_dat(d, ur) << (len - 1));
 
         usleep(T_CKL);
     }
@@ -217,7 +255,7 @@ void pic_enter_lvp(int d, struct hiddev_usage_ref* ur)
 
     usleep(T_ENTH);
 
-    uint8_t key[33] = {
+    unsigned int key[33] = {
         0, // don't care
         0, 1, 0, 0,
         1, 1, 0, 1,
@@ -228,91 +266,162 @@ void pic_enter_lvp(int d, struct hiddev_usage_ref* ur)
         0, 1, 0, 1,
         0, 0, 0, 0,
     };
-    send_data(d, ur, key, lengthof(key));
+    send_data_array(d, ur, key, lengthof(key));
 }
 
 
 static
 void pic_load_configuration(int d, struct hiddev_usage_ref* ur)
 {
-    uint8_t command[6] = { 0, 0, 0, 0, 0, 0 };
-    send_data(d, ur, command, lengthof(command));
-
+    send_data(d, ur, 0x00, 6);
     usleep(T_DLY);
-
-    uint8_t data[16] = {0};
-    send_data(d, ur, data, lengthof(data));
-
+    send_data(d, ur, 0x00, 16);
     usleep(T_DLY);
+}
+
+
+static
+void pic_load_data(int d, struct hiddev_usage_ref* ur, unsigned int word)
+{
+    send_data(d, ur, 0x02, 6);
+    usleep(T_DLY);
+    send_data(d, ur, word << 1, 16);
+    usleep(T_DLY);
+}
+
+
+static
+unsigned int pic_read_data(int d, struct hiddev_usage_ref* ur)
+{
+    send_data(d, ur, 0x04, 6);
+    usleep(T_DLY);
+    unsigned int n = (get_data(d, ur, 16) >> 1) & 0x3FFF;
+    usleep(T_DLY);
+    return n;
 }
 
 
 static
 void pic_increment_address(int d, struct hiddev_usage_ref* ur)
 {
-    uint8_t command[6] = { 0, 0, 0, 1, 1, 0 };
-    send_data(d, ur, command, lengthof(command));
-
+    send_data(d, ur, 0x06, 6);
     usleep(T_DLY);
 }
 
 
 static
-int pic_read_data(int d, struct hiddev_usage_ref* ur)
+void pic_reset_address(int d, struct hiddev_usage_ref* ur)
 {
-    uint8_t command[6] = { 0, 0, 0, 1, 0, 0 };
-    send_data(d, ur, command, lengthof(command));
-
+    send_data(d, ur, 0x16, 6);
     usleep(T_DLY);
+}
 
-    int n = get_data(d, ur);
 
-    usleep(T_DLY);
+static
+void pic_int_program(int d, struct hiddev_usage_ref* ur, bool config)
+{
+    send_data(d, ur, 0x08, 6);
+    usleep(config ? T_PINTC : T_PINTP);
+}
 
-    return n;
+
+static
+void pic_bulk_erase(int d, struct hiddev_usage_ref* ur)
+{
+    send_data(d, ur, 0x09, 6);
+    usleep(T_ERAB);
+}
+
+
+static
+void program_hex_file(int d, struct hiddev_usage_ref* ur, FILE* f)
+{
+    pic_bulk_erase(d, ur);
+    pic_reset_address(d, ur);
+
+    unsigned int addr = 0, len, newaddr, type;
+    int r;
+    while (true) {
+        r = fscanf(f, ":%2x%4x%2x", &len, &newaddr, &type);
+        if (ferror(f))
+            fatal_e(E_COMMON, "Can't read from hex file");
+        if (r < 3 || r == EOF)
+            fatal(E_COMMON, "Expected colon, length, address, and type");
+        if (type == 0x01)
+            break;
+
+        len /= 2;
+        newaddr /= 2;
+
+        if (newaddr < addr)
+            fatal(E_COMMON, "New address is lower than old address");
+
+        while (addr < newaddr) {
+            pic_increment_address(d, ur);
+            ++addr;
+        }
+
+        for (unsigned int i = 0; i < len; ++i) {
+            unsigned int low, high;
+            r = fscanf(f, "%2x%2x", &low, &high);
+            if (ferror(f))
+                fatal_e(E_COMMON, "Can't read from hex file");
+            if (r < 2 || r == EOF)
+                fatal(E_COMMON, "Expected word");
+            unsigned int word = low + (high << 8);
+            pic_load_data(d, ur, word);
+            pic_int_program(d, ur, false);
+            printf("[0x%04x] = 0x%04X\n", addr, word);
+            pic_increment_address(d, ur);
+            ++addr;
+        }
+
+        unsigned int garbage;
+        r = fscanf(f, "%2x\n", &garbage);
+            if (ferror(f))
+                fatal_e(E_COMMON, "Can't read from hex file");
+            if (r < 1 || r == EOF)
+                fatal(E_COMMON, "Expected checksum and newline");
+    }
 }
 
 
 int main(int argc, char** argv)
 {
-    int d;
-    {
-        int first = process_opts(argc, argv);
-        if (first >= argc)
-            fatal(E_USAGE, "Usage: %s [OPTIONS] DEVICE", argv[0]);
+    struct opts opts = {0};
+    int first = process_opts(argc, argv, &opts);
+    if (opts.program_file + opts.print_config + opts.test > 1)
+        fatal(E_USAGE, "-f, -p, and -T are mutually exclusive");
+    if (argc - first != (opts.program_file ? 2 : 1))
+        fatal(E_USAGE, "Usage: %s [OPTIONS] DEVICE [HEXFILE]", argv[0]);
 
-        d = open(argv[first], O_RDWR | O_NONBLOCK);
-        if (d == -1)
-            fatal_e(E_COMMON, "Can't open device");
+    int d = open(argv[first], O_RDWR | O_NONBLOCK);
+    if (d == -1)
+        fatal_e(E_COMMON, "Can't open device");
+
+    struct hiddev_usage_ref* ur;
+    {
+        struct hiddev_report_info ri;
+        ri.report_id = 0;
+        v1("Initializing...");
+        ur = init_report(d, &ri);
     }
+    verify_fix_gp_settings(d, ur);
 
-    {
-        struct hiddev_usage_ref* ur;
-        {
-            struct hiddev_report_info ri;
-            ri.report_id = 0;
-            v1("Initializing...");
-            ur = init_report(d, &ri);
-        }
+    pic_enter_lvp(d, ur);
 
-        verify_fix_gp_settings(d, ur);
-
-        pic_enter_lvp(d, ur);
-
+    if (opts.print_config) {
         pic_load_configuration(d, ur);
 
         unsigned int addr = 0x8000;
-
         print("User ID:\n");
         for (/* */; addr <= 0x8003; ++addr) {
             printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
                 addr, pic_read_data(d, ur));
             pic_increment_address(d, ur);
         }
-
         for (/* */; addr <= 0x8004; ++addr)
             pic_increment_address(d, ur);
-
         print("Revision and device ID:\n");
         for (/* */; addr <= 0x8006; ++addr) {
             printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
@@ -320,4 +429,33 @@ int main(int argc, char** argv)
             pic_increment_address(d, ur);
         }
     }
+
+    if (opts.test) {
+        pic_load_configuration(d, ur);
+        pic_bulk_erase(d, ur);
+        pic_load_data(d, ur, 0x0123);
+        pic_int_program(d, ur, true);
+    }
+
+    if (opts.program_file) {
+        FILE* f = fopen(argv[first + 1], "r");
+        if (f == NULL)
+            fatal_e(E_COMMON, "Can't open hex file");
+        program_hex_file(d, ur, f);
+        fclose(f); // and ignore errors
+    }
+
+    if (opts.run) {
+        struct gp gp = {
+            .n_mclr = 1,
+            .clk = 0,
+            .dat = 0,
+            .dat_in = 0,
+        };
+        set_gp(d, ur, &gp);
+    }
+
+    close(d); // and ignore errors
+
+    return 0;
 }
