@@ -278,7 +278,7 @@ int main(int argc, char** argv)
     int d;
     {
         int first = process_opts(argc, argv);
-        if (argc - first < 1)
+        if (first >= argc)
             fatal(E_USAGE, "Usage: %s [OPTIONS] DEVICE", argv[0]);
 
         d = open(argv[first], O_RDWR | O_NONBLOCK);
