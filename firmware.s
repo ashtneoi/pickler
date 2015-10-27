@@ -22,27 +22,30 @@
             .sfr 0x398, IOCCN
             .sfr 0x399, IOCCF
 
+            ; read RA1, write RC2
+
 reset:      goto start
 a0002:      nop
 a0003:      nop
-int:        btfss IOCCF, 3
+int:        btfss IOCAF, 1
              retfie
             bcf IOCCF, 3
             bcf INTCON, 0 ; IOCIF
-            btfsc PORTC, 3
+            btfsc PORTA, 1
              bsf LATC, 2
-            btfss PORTC, 3
+            btfss PORTA, 1
              bcf LATC, 2
             retfie
 
-start:      movlw 0n00000100
-            movwf LATC
+start:      clrf LATC
+            clrf ANSELA
+            clrf ANSELC
             movlw 0n00111111 ; RA dir = in
             movwf TRISA
             movlw 0n00111011 ; RC dir = in, RC2 dir = out
             movwf TRISC
-            bsf IOCCP, 3
-            bsf IOCCN, 3
+            bsf IOCAP, 1
+            bsf IOCAN, 1
             movlw 0n10001000 ; GIE, IOCIE
             iorwf INTCON
 idle:       sleep
