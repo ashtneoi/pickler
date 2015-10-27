@@ -4,6 +4,13 @@ MAKEFLAGS += --no-builtin-rules
 .SECONDEXPANSION:
 
 
+PIC_AS := ~/conspicuous/cpic
+
+
+firmware.hex: firmware.s $(PIC_AS)
+	$(PIC_AS) $< >$@
+
+
 EXE_SRC := get_info.c selfprogram.c
 SRC := $(EXE_SRC) fail.c info.c mcp2221.c
 
