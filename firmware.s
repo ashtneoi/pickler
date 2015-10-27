@@ -24,29 +24,32 @@
 
             ; read RA1, write RC2
 
+
 reset:      goto start
 a0002:      nop
 a0003:      nop
 int:        btfss IOCAF, 1
              retfie
-            bcf IOCCF, 3
-            bcf INTCON, 0 ; IOCIF
-            btfsc PORTA, 1
-             bsf LATC, 2
-            btfss PORTA, 1
-             bcf LATC, 2
+            bcf IOCAF, 1
+            movf PORTA, 0
+            movlb LATC
+            btfsc WREG, 1
+             *bsf LATC, 2
+            btfss WREG, 1
+             *bcf LATC, 2
             retfie
 
 start:      clrf LATC
-            clrf ANSELA
-            clrf ANSELC
-            movlw 0n00111111 ; RA dir = in
+            movlw 0n00000011
             movwf TRISA
-            movlw 0n00111011 ; RC dir = in, RC2 dir = out
+            clrf ANSELA
+            movlw 0n00111000
             movwf TRISC
+            clrf ANSELC
             bsf IOCAP, 1
             bsf IOCAN, 1
             movlw 0n10001000 ; GIE, IOCIE
             iorwf INTCON
+
 idle:       sleep
-            goto idle
+            bra idle
