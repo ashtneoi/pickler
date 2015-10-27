@@ -47,6 +47,7 @@ int verbosity;
 
 
 struct opts {
+    bool clk_test_pattern;
     bool program_file;
     bool print_config;
     bool run;
@@ -59,8 +60,10 @@ int process_opts(int argc, char** argv, struct opts* opts)
 {
     opterr = 0;
     int r;
-    while ((r = getopt(argc, argv, "fprTv")) != -1) {
-        if (r == 'f') {
+    while ((r = getopt(argc, argv, "cfprTv")) != -1) {
+        if (r == 'c') {
+            opts->clk_test_pattern = true;
+        } else if (r == 'f') {
             opts->program_file = true;
         } else if (r == 'p') {
             opts->print_config = true;
@@ -454,6 +457,23 @@ int main(int argc, char** argv)
         };
         set_gp(d, ur, &gp);
     }
+
+    if (opts.clk_test_pattern) {
+        struct gp gp = {
+            .n_mclr = 1,
+            .clk = 0,
+            .dat = 0,
+            .dat_in = 0,
+        };
+
+        while (true) {
+            sleep(1);
+            printf("ICSPCLK = %d\n", gp.clk);
+            set_gp(d, ur, &gp);
+            gp.clk = 1 - gp.clk;
+        }
+    }
+
 
     close(d); // and ignore errors
 
