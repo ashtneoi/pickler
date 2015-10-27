@@ -43,13 +43,12 @@ start:      clrf LATC
             movlw 0n00000011
             movwf TRISA
             clrf ANSELA
-            movlw 0n00111000
+            movlw 0n00101000
             movwf TRISC
             clrf ANSELC
             bsf IOCAP, 1
             bsf IOCAN, 1
             movlw 0n10001000 ; GIE, IOCIE
             iorwf INTCON
-
 idle:       sleep
             bra idle
