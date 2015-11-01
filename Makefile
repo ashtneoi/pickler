@@ -2,6 +2,7 @@ MAKEFLAGS += --no-builtin-rules
 .SUFFIXES:
 
 .SECONDEXPANSION:
+.DELETE_ON_ERROR:
 
 
 PIC_AS := ~/conspicuous/cpic
