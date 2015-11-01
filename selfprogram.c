@@ -339,52 +339,71 @@ void pic_bulk_erase(int d, struct hiddev_usage_ref* ur)
 static
 void program_hex_file(int d, struct hiddev_usage_ref* ur, FILE* f)
 {
-    pic_bulk_erase(d, ur);
     pic_reset_address(d, ur);
+    pic_bulk_erase(d, ur);
 
-    unsigned int addr = 0, len, newaddr, type;
+    unsigned int pc = 0, len, newpc = 0;
     int r;
     while (true) {
-        r = fscanf(f, ":%2x%4x%2x", &len, &newaddr, &type);
+        unsigned int newpc_l, type;
+        r = fscanf(f, ":%2x%4x%2x", &len, &newpc_l, &type);
         if (ferror(f))
             fatal_e(E_COMMON, "Can't read from hex file");
         if (r < 3 || r == EOF)
             fatal(E_COMMON, "Expected colon, length, address, and type");
-        if (type == 0x01)
-            break;
 
         len /= 2;
-        newaddr /= 2;
+        newpc_l /= 2;
 
-        if (newaddr < addr)
-            fatal(E_COMMON, "New address is lower than old address");
-
-        while (addr < newaddr) {
-            pic_increment_address(d, ur);
-            ++addr;
-        }
-
-        for (unsigned int i = 0; i < len; ++i) {
-            unsigned int low, high;
-            r = fscanf(f, "%2x%2x", &low, &high);
-            if (ferror(f))
-                fatal_e(E_COMMON, "Can't read from hex file");
-            if (r < 2 || r == EOF)
-                fatal(E_COMMON, "Expected word");
-            unsigned int word = low + (high << 8);
-            pic_load_data(d, ur, word);
-            pic_int_program(d, ur, false);
-            printf("[0x%04x] = 0x%04X\n", addr, word);
-            pic_increment_address(d, ur);
-            ++addr;
-        }
-
-        unsigned int garbage;
-        r = fscanf(f, "%2x\n", &garbage);
+        if (type == 0x01) {
+            break;
+        } else if (type == 0x04) {
+            unsigned int newpc_h;
+            r = fscanf(f, "%4x", &newpc_h);
             if (ferror(f))
                 fatal_e(E_COMMON, "Can't read from hex file");
             if (r < 1 || r == EOF)
-                fatal(E_COMMON, "Expected checksum and newline");
+                fatal(E_COMMON, "Expected upper address");
+            newpc = newpc_h << 15;
+        } else if (type == 0x00) {
+            newpc = (newpc & ~0x7FFF) | newpc_l;
+
+            if ((pc < 0x8000 || pc > newpc) && newpc >= 0x8000) {
+                pic_load_configuration(d, ur);
+                pc = 0x8000;
+            } else if ((pc >= 0x8000 || pc > newpc) && newpc < 0x8000) {
+                pic_reset_address(d, ur);
+                pc = 0x0000;
+            }
+
+            while (pc < newpc) {
+                pic_increment_address(d, ur);
+                ++pc; // no way it'll overflow
+            }
+
+            for (unsigned int i = 0; i < len; ++i) {
+                unsigned int low, high;
+                r = fscanf(f, "%2x%2x", &low, &high);
+                if (ferror(f))
+                    fatal_e(E_COMMON, "Can't read from hex file");
+                if (r < 2 || r == EOF)
+                    fatal(E_COMMON, "Expected word");
+                unsigned int word = low + (high << 8);
+                pic_load_data(d, ur, word);
+                pic_int_program(d, ur, false);
+                printf("[0x%04X] = 0x%04X\n", pc, word);
+                pic_increment_address(d, ur);
+                ++pc; // no way it'll overflow
+            }
+        } else {
+            fatal(E_COMMON, "Unrecognized type");
+        }
+
+        r = fscanf(f, "%*2x\n");
+        if (ferror(f))
+            fatal_e(E_COMMON, "Can't read from hex file");
+        if (r == EOF)
+            fatal(E_COMMON, "Expected checksum and newline");
     }
 }
 
@@ -416,19 +435,19 @@ int main(int argc, char** argv)
     if (opts.print_config) {
         pic_load_configuration(d, ur);
 
-        unsigned int addr = 0x8000;
+        unsigned int pc = 0x8000;
         print("User ID:\n");
-        for (/* */; addr <= 0x8003; ++addr) {
+        for (/* */; pc <= 0x8003; ++pc) {
             printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
-                addr, pic_read_data(d, ur));
+                pc, pic_read_data(d, ur));
             pic_increment_address(d, ur);
         }
-        for (/* */; addr <= 0x8004; ++addr)
+        for (/* */; pc <= 0x8004; ++pc)
             pic_increment_address(d, ur);
         print("Revision and device ID:\n");
-        for (/* */; addr <= 0x8006; ++addr) {
+        for (/* */; pc <= 0x8006; ++pc) {
             printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
-                addr, pic_read_data(d, ur));
+                pc, pic_read_data(d, ur));
             pic_increment_address(d, ur);
         }
     }
