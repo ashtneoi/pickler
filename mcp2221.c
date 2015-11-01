@@ -26,7 +26,7 @@ void wait_consume_input(int d)
         .events = POLLIN,
     };
 
-    int r = poll(&pf, 1, 5);
+    int r = poll(&pf, 1, 1);
     if (r == -1)
         fatal_e(E_COMMON, "Can't poll() device");
 
