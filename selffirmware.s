@@ -53,9 +53,16 @@
             ; RC1 = ICSPCLK
             ; RC2 = ICSPDAT
 
-            ; Delay registers
+            ; Delay counters
             .reg 2, delay0
             .reg 2, delay1
+
+            ; Command decoding registers
+            .reg 3, buf
+            .reg 3, cmd
+            .reg 3, datalen
+            .reg 3, dataL
+            .reg 3, dataH
 
             ; FCMEN = off, IESO = off, CLKOUTEN = off, BOREN = on, CP = off,
             ; PWRTE = off, WDTE = off, FOSC = INTOSC
@@ -66,26 +73,58 @@
 
 
             ;;;
-            ;;; The program
+            ;;; Interrupt vectors
             ;;;
 
 
 reset:      goto start
 a0002:      nop
 a0003:      nop
+
 int:
-            btfsc RC1STA, 2 ; FERR
-             *bra frame_err
             btfss PIR1, 5 ; RCIF
-             retfie
+             retfie ; Not sure how we could get here.
+
             movf RC1REG, 0
-wait_rdy:   btfss PIR1, 4 ; TXIF
-             *bra wait_rdy
-            movwf TX1REG
-            retfie
-frame_err:  movf RC1REG, 0
+            btfsc RC1STA, 2 ; FERR
+             retfie
+            movwf buf
+
+            ; If cmd is 0, set cmd.
+            movf cmd ; test cmd
+            btfsc STATUS, 2 ; Z
+             *bra set_cmd
+
+            ; If cmd is 'L' and datalen < 2, set data.
+            movf cmd, 0
+            sublw 0x4C ; 'L'
+            btfss STATUS, 2 ; Z
+             retfie
             retfie
 
+            ; If datalen is 2, return.  btfsc datalen, 1
+             retfie
+            ; Increment datalen.
+            incf datalen
+            ; If datalen is 2, set dataH.
+            btfsc datalen, 1
+             *bra set_dataH
+            ; Else set dataL.
+            movf buf, 0
+            movwf dataL
+            retfie
+set_dataH:  movf buf, 0
+            movwf dataH
+            retfie
+
+set_cmd:    movwf cmd
+            clrf datalen
+            retfie
+
+
+            ;;;
+            ;;; Main program
+            ;;;
 
 start:
             ;;; Set up ports. ;;;
@@ -142,12 +181,53 @@ start:
             movlw 0n10010000
             movwf RC1STA
 
-blink1:     movlw 0xFF
-            movwf delay0
-            movlw 0x80
-            movwf delay1
+            movlw 0x5F ; '_'
+            call send_char
 
-blink2:     movlw 1
+            ; 'N': eNter LVP
+            ; 'X': eXit lVP
+            ; 'C': load Configuration
+            ; 'L': Load data for program memory
+            ; 'D': reaD data from program memory
+            ; 'I': Increment address
+            ; 'A': reset Address
+            ; 'P': begin internally timed Programming
+            ; 'E': (begin Externally timed programming)
+            ; 'F': (end externally timed programming)
+            ; 'B': Bulk erase program memory
+            ; 'R': (Row erase program memory)
+
+handle_cmd:
+            movf cmd, 0
+            btfsc STATUS, 2 ; Z
+             *bra handle_cmd
+
+            call send_char
+
+            ; If cmd is 'N'...
+            movf cmd, 0
+            sublw 0x4E
+            btfsc STATUS, 2 ; Z
+             *bra do_N
+            ; If cmd is 'X'...
+            movf cmd, 0
+            sublw 0x58
+            btfsc STATUS, 2 ; Z
+             *bra do_X
+            clrf cmd
+            bra handle_cmd
+
+do_N:       bcf LATC, 0
+            clrf cmd
+            bra handle_cmd
+
+do_X:       bsf LATC, 0
+            clrf cmd
+            bra handle_cmd
+
+
+
+delay:      movlw 1
             subwf delay0
             movlw 0
             subwfb delay1
@@ -155,9 +235,9 @@ blink2:     movlw 1
             btfsc STATUS, 2 ; Z
              *movf delay1
             btfss STATUS, 2 ; Z
-             *bra blink2
+             *bra delay
 
-            movlw 0n00000010
-            xorwf LATC
-
-            bra blink1
+send_char:  btfss PIR1, 4 ; TXIF
+             *bra send_char
+            movwf TX1REG
+            return
