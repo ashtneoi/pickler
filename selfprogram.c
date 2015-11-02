@@ -442,14 +442,25 @@ int main(int argc, char** argv)
                 pc, pic_read_data(d, ur));
             pic_increment_address(d, ur);
         }
-        for (/* */; pc <= 0x8004; ++pc)
+        print("???:\n");
+        for (/* */; pc <= 0x8004; ++pc) {
+            printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
+                pc, pic_read_data(d, ur));
             pic_increment_address(d, ur);
+        }
         print("Revision and device ID:\n");
         for (/* */; pc <= 0x8006; ++pc) {
             printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
                 pc, pic_read_data(d, ur));
             pic_increment_address(d, ur);
         }
+        print("???:\n");
+        for (/* */; pc <= 0x800F; ++pc) {
+            printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
+                pc, pic_read_data(d, ur));
+            pic_increment_address(d, ur);
+        }
+        pic_reset_address(d, ur);
     }
 
     if (opts.test) {
