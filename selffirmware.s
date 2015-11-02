@@ -100,9 +100,9 @@ int:
             sublw 0x4C ; 'L'
             btfss STATUS, 2 ; Z
              retfie
-            retfie
 
-            ; If datalen is 2, return.  btfsc datalen, 1
+            ; If datalen is 2, return.
+            btfsc datalen, 1
              retfie
             ; Increment datalen.
             incf datalen
@@ -236,6 +236,7 @@ delay:      movlw 1
              *movf delay1
             btfss STATUS, 2 ; Z
              *bra delay
+            return
 
 send_char:  btfss PIR1, 4 ; TXIF
              *bra send_char
