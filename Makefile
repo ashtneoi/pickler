@@ -8,7 +8,7 @@ MAKEFLAGS += --no-builtin-rules
 PIC_AS := ~/conspicuous/cpic
 
 
-firmware.hex: firmware.s $(PIC_AS)
+selffirmware.hex: selffirmware.s $(PIC_AS)
 	$(PIC_AS) $< >$@
 
 
