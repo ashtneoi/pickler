@@ -66,10 +66,10 @@
 
             ; FCMEN = off, IESO = off, CLKOUTEN = off, BOREN = on, CP = off,
             ; PWRTE = off, WDTE = off, FOSC = INTOSC
-            .cfg 0x8005, 0n00_1111_1110_0100
+            .cfg 0x8007, 0n00_1111_1110_0100
             ; LVP = on, DEBUG = off, LPBOR = off, BORV = low, STVREN = on,
             ; PLLEN = off, ZCDDIS = 1, PPS1WAY = on, WRT = off
-            .cfg 0x8006, 0n11_1110_1111_1111
+            .cfg 0x8008, 0n11_1110_1111_1111
 
 
             ;;;
