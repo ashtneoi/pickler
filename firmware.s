@@ -1,3 +1,8 @@
+            ;;;
+            ;;; PIC16(L)F1704 registers
+            ;;;
+
+
             .gpr 0x020, 0x32F
             .sfr 0x00C, PORTA
             .sfr 0x00E, PORTC
@@ -38,9 +43,19 @@
             .sfr 0xE24, RXPPS
             .sfr 0xEA4, RC4PPS
 
-            .reg B0
-            .reg B1
 
+            ;;;
+            ;;; Various declarations
+            ;;;
+
+
+            ; RC0 = ~MCLR
+            ; RC1 = ICSPCLK
+            ; RC2 = ICSPDAT
+
+            ; Delay registers
+            .reg 2, delay0
+            .reg 2, delay1
 
             ; FCMEN = off, IESO = off, CLKOUTEN = off, BOREN = on, CP = off,
             ; PWRTE = off, WDTE = off, FOSC = INTOSC
@@ -48,6 +63,11 @@
             ; LVP = on, DEBUG = off, LPBOR = off, BORV = low, STVREN = on,
             ; PLLEN = off, ZCDDIS = 1, PPS1WAY = on, WRT = off
             .cfg 0x8006, 0n11_1110_1111_1111
+
+
+            ;;;
+            ;;; The program
+            ;;;
 
 
 reset:      goto start
@@ -123,21 +143,21 @@ start:
             movwf RC1STA
 
 blink1:     movlw 0xFF
-            movwf B0
+            movwf delay0
             movlw 0x80
-            movwf B1
+            movwf delay1
 
 blink2:     movlw 1
-            subwf B0
+            subwf delay0
             movlw 0
-            subwfb B1
-            movf B0
+            subwfb delay1
+            movf delay0
             btfsc STATUS, 2 ; Z
-             movf B1
+             *movf delay1
             btfss STATUS, 2 ; Z
              *bra blink2
 
-            movlw 0n00000100
+            movlw 0n00000010
             xorwf LATC
 
             bra blink1
