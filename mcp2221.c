@@ -68,7 +68,9 @@ void communicate(int d)
     }
 
     if (ur[0].value != command)
-        fatal(E_RARE, "Command not echoed");
+        fatal(E_RARE,
+            "Command not echoed (command = 0x%02X, response = 0x%02X)",
+            command, ur[0].value);
     else if (ur[1].value != 0)
         fatal(E_COMMON, "Command failed");
 }
