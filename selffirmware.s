@@ -260,18 +260,14 @@ do_slow:
             movlw 0x10
             movwf delay1_def
 
-            movf cmd, 0
-            call uart_send
-
+            movlw 1
             bra cmd_done
 
 do_fast:
             movlw 0x01
             movwf delay1_def
 
-            movf cmd, 0
-            call uart_send
-
+            movlw 1
             bra cmd_done
 
 
@@ -396,15 +392,25 @@ handle_cmd:
             ; Otherwise...
             movlw 0x3F ; '?'
             call uart_send
+            bra next_cmd
 
 cmd_done:
+            movf WREG
+            movlb cmd
+            btfsc STATUS, 2 ; Z
+             movlw 0x2E ; '.'
+            btfss STATUS, 2 ; Z
+             *movf cmd, 0
+            call uart_send
+
+next_cmd:
             clrf cmd
             bsf STATUS, 7 ; GIE
             bra handle_cmd
 
 
             ;;;
-            ;;; 'N'
+            ;;; 'N': eNter LVP
             ;;;
 
 
@@ -441,31 +447,27 @@ do_N:
             movlw 16
             call icsp_send
 
-            bcf icsp0, 0
+            ; icsp0[0] is 0 now.
             movlw 1
             call icsp_send
 
-            movf cmd, 0
-            call uart_send
-
+            movlw 1
             bra cmd_done
 
 
             ;;;
-            ;;; 'X'
+            ;;; 'X': eXit LVP
             ;;;
 
 
 do_X:       bsf LATC, 0
 
-            movf cmd, 0
-            call uart_send
-
+            movlw 1
             bra cmd_done
 
 
             ;;;
-            ;;; 'C'
+            ;;; 'C': load Configuration
             ;;;
 
 
@@ -487,14 +489,12 @@ do_C:       clrf icsp0
             movwf delay0
             call delay
 
-            movf cmd, 0
-            call uart_send
-
+            movlw 1
             bra cmd_done
 
 
             ;;;
-            ;;; 'L'
+            ;;; 'L': Load data for program memory
             ;;;
 
 
@@ -526,14 +526,12 @@ do_L:       movf datalen, 0
             movwf delay0
             call delay
 
-            movf cmd, 0
-            call uart_send
-
+            movlw 1
             bra cmd_done
 
 
             ;;;
-            ;;; 'D'
+            ;;; 'D': reaD data for program memory
             ;;;
 
 
@@ -562,29 +560,153 @@ do_D:       movlw 0n000100
             movf icsp1, 0
             call uart_send
 
-            movf cmd, 0
-            call uart_send
-
+            movlw 1
             bra cmd_done
 
 
             ;;;
-            ;;; 'I', etc.
+            ;;; 'I': Increment address
             ;;;
 
 
-do_I:       nop
-do_A:       nop
-do_P:       nop
-do_E:       nop
-do_F:       nop
-do_B:       nop
-do_R:       nop
+do_I:       movlw 0n000110
+            movwf icsp0
+            movlw 6
+            call icsp_send
 
-            movlw 0x2E ; '.'
-            call uart_send
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
 
+            movlw 1
             bra cmd_done
+
+
+            ;;;
+            ;;; 'A': reset Address
+            ;;;
+
+
+do_A:       movlw 0n010110
+            movwf icsp0
+            movlw 6
+            call icsp_send
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movlw 1
+            bra cmd_done
+
+
+            ;;;
+            ;;; 'P': begin internally timed Programming
+            ;;;
+
+
+do_P:       movlw 0n001000
+            movwf icsp0
+            movlw 6
+            call icsp_send
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movlw 1
+            bra cmd_done
+
+
+            ;;;
+            ;;; 'E': (begin Externally timed programming)
+            ;;;
+
+
+do_E:       movlw 0n011000
+            movwf icsp0
+            movlw 6
+            call icsp_send
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movlw 1
+            bra cmd_done
+
+
+            ;;;
+            ;;; 'F': (end externally timed programming)
+            ;;;
+
+
+do_F:       movlw 0n001010
+            movwf icsp0
+            movlw 6
+            call icsp_send
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movlw 1
+            bra cmd_done
+
+
+            ;;;
+            ;;; 'B': (Bulk erase program memory)
+            ;;;
+
+
+do_B:       movlw 0n001001
+            movwf icsp0
+            movlw 6
+            call icsp_send
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movlw 1
+            bra cmd_done
+
+
+            ;;;
+            ;;; 'R': (Row erase program memory)
+            ;;;
+
+
+do_R:       movlw 0n010001
+            movwf icsp0
+            movlw 6
+            call icsp_send
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movlw 1
+            bra cmd_done
+
+
+            ;;;
+            ;;;
+            ;;;
 
 
 delay:      movlw 1
@@ -599,11 +721,21 @@ delay:      movlw 1
             return
 
 
+            ;;;
+            ;;;
+            ;;;
+
+
 uart_send:  btfss PIR1, 4 ; TXIF
              *bra uart_send
             nop ; See erratum 4.1. Probably not needed, though.
             movwf TX1REG
             return
+
+
+            ;;;
+            ;;;
+            ;;;
 
 
 icsp_send:
@@ -645,6 +777,11 @@ _is_loop:
              *bra _is_loop
 
             return
+
+
+            ;;;
+            ;;;
+            ;;;
 
 
 icsp_sendw:
@@ -690,6 +827,11 @@ _isw_loop:
              *bra _isw_loop
 
             return
+
+
+            ;;;
+            ;;;
+            ;;;
 
 
 icsp_recvw:
