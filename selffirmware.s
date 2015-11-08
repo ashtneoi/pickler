@@ -60,13 +60,14 @@
             ; delay counters
             .reg 2, delay0
             .reg 2, delay1
+            .reg 2, delay1_def
 
             ; command decoding registers
             .reg 3, buf
             .reg 3, cmd
             .reg 3, datalen
-            .reg 3, dataL
-            .reg 3, dataH
+            .reg 3, data0
+            .reg 3, data1
 
             ; ICSP buffer
             .reg 3, icsp0
@@ -120,13 +121,13 @@ int:
             incf datalen
             ; If datalen is 2, set dataH.
             btfsc datalen, 1
-             *bra set_dataH
-            ; Else set dataL.
+             *bra set_data1
+            ; Else set data0.
             movf buf, 0
-            movwf dataL
+            movwf data0
             retfie
-set_dataH:  movf buf, 0
-            movwf dataH
+set_data1:  movf buf, 0
+            movwf data1
             retfie
 
 set_cmd:    movwf cmd
@@ -137,6 +138,7 @@ set_cmd:    movwf cmd
             ;;;
             ;;; main program
             ;;;
+
 
 start:
             ;;; Set up ports. ;;;
@@ -177,6 +179,10 @@ start:
              movlw 0x6D ; 'm'
             btfss PCON, 3 ; ~RMCLR
              *bra cause_done
+            btfss PCON, 2 ; ~RI
+             movlw 0x72 ; 'r'
+            btfss PCON, 2 ; ~RI
+             *bra cause_done
             btfss PCON, 1 ; ~POR
              movlw 0x70 ; 'p'
             btfss PCON, 1 ; ~POR
@@ -189,10 +195,17 @@ start:
 
 cause_done: movwf resetcause
 
+            movlw 0n00011111
+            movwf PCON
+
             ;;; Set up programmer. ;;;
 
             clrf cmd
+
             clrf datalen
+
+            movlw 0x10
+            movwf delay1_def
 
             ;;; Set up EUSART. ;;;
 
@@ -229,16 +242,47 @@ cause_done: movwf resetcause
             movwf RC1STA
 
             movlw 0x5F ; '_'
-            call uart_send1
+            call uart_send
             movlw 0x5F ; '_'
-            call uart_send1
+            call uart_send
             movlw 0x5F ; '_'
-            call uart_send1
+            call uart_send
             movf resetcause, 0
-            call uart_send1
+            call uart_send
+
+
+            ;;;
+            ;;;
+            ;;;
+
+
+do_slow:
+            movlw 0x10
+            movwf delay1_def
+
+            movf cmd, 0
+            call uart_send
+
+            bra cmd_done
+
+do_fast:
+            movlw 0x01
+            movwf delay1_def
+
+            movf cmd, 0
+            call uart_send
+
+            bra cmd_done
+
+
+            ;;;
+            ;;;
+            ;;;
 
 
             ; '_': reset programmer
+            ; '[': slow
+            ; ']': fast
             ; 'N': eNter LVP
             ; 'X': eXit lVP
             ; 'C': load Configuration
@@ -264,6 +308,18 @@ handle_cmd:
             sublw 0x5F
             btfsc STATUS, 2 ; Z
              reset
+
+            ; If cmd is '['...
+            movf cmd, 0
+            sublw 0x5B
+            btfsc STATUS, 2 ; Z
+             *bra do_slow
+
+            ; If cmd is ']'...
+            movf cmd, 0
+            sublw 0x5D
+            btfsc STATUS, 2 ; Z
+             *bra do_fast
 
             ; If cmd is 'N'...
             movf cmd, 0
@@ -339,7 +395,7 @@ handle_cmd:
 
             ; Otherwise...
             movlw 0x3F ; '?'
-            call uart_send1
+            call uart_send
 
 cmd_done:
             clrf cmd
@@ -347,12 +403,16 @@ cmd_done:
             bra handle_cmd
 
 
+            ;;;
+            ;;; 'N'
+            ;;;
+
+
 do_N:
             ; MCLR = 1
             bsf LATC, 0
 
-            ; Delay about 1 s.
-            movlw 0x10
+            movf delay1_def, 0
             movwf delay1
             movlw 0xFF
             movwf delay0
@@ -361,8 +421,7 @@ do_N:
             ; MCLR = 0
             bcf LATC, 0
 
-            ; Delay about 1 s.
-            movlw 0x10
+            movf delay1_def, 0
             movwf delay1
             movlw 0xFF
             movwf delay0
@@ -370,47 +429,150 @@ do_N:
 
             movlw 0x50 ; 'P'
             movwf icsp0
-            call icsp_send1
-
             movlw 0x48 ; 'H'
-            movwf icsp0
-            call icsp_send1
+            movwf icsp1
+            movlw 16
+            call icsp_send
 
             movlw 0x43 ; 'C'
             movwf icsp0
-            call icsp_send1
-
             movlw 0x4D ; 'M'
-            movwf icsp0
-            call icsp_send1
+            movwf icsp1
+            movlw 16
+            call icsp_send
+
+            bcf icsp0, 0
+            movlw 1
+            call icsp_send
 
             movf cmd, 0
-            call uart_send1
+            call uart_send
 
             bra cmd_done
+
+
+            ;;;
+            ;;; 'X'
+            ;;;
 
 
 do_X:       bsf LATC, 0
 
             movf cmd, 0
-            call uart_send1
+            call uart_send
 
             bra cmd_done
 
 
-do_C:       nop
+            ;;;
+            ;;; 'C'
+            ;;;
 
-            movlw 0x2E ; '.'
-            call uart_send1
+
+do_C:       clrf icsp0
+            movlw 6
+            call icsp_send
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            call icsp_sendw ; Data doesn't matter.
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movf cmd, 0
+            call uart_send
 
             bra cmd_done
+
+
+            ;;;
+            ;;; 'L'
+            ;;;
+
 
 do_L:       movf datalen, 0
             sublw 2
             btfss STATUS, 2 ; Z
              *bra handle_cmd
 
-do_D:       nop
+            movlw 0n000010
+            movwf icsp0
+            movlw 6
+            call icsp_send
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movf data1, 0
+            movwf icsp1
+            movf data0, 0
+            movwf icsp0
+            call icsp_sendw
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movf cmd, 0
+            call uart_send
+
+            bra cmd_done
+
+
+            ;;;
+            ;;; 'D'
+            ;;;
+
+
+do_D:       movlw 0n000100
+            movwf icsp0
+            movlw 6
+            call icsp_send
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            call icsp_recvw
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            movf icsp0, 0
+            call uart_send
+
+            movf icsp1, 0
+            call uart_send
+
+            movf cmd, 0
+            call uart_send
+
+            bra cmd_done
+
+
+            ;;;
+            ;;; 'I', etc.
+            ;;;
+
+
 do_I:       nop
 do_A:       nop
 do_P:       nop
@@ -420,7 +582,7 @@ do_B:       nop
 do_R:       nop
 
             movlw 0x2E ; '.'
-            call uart_send1
+            call uart_send
 
             bra cmd_done
 
@@ -434,32 +596,35 @@ delay:      movlw 1
              *movf delay1
             btfss STATUS, 2 ; Z
              *bra delay
-
-            bsf LATC, 2 ; DAT (debug)
-
             return
 
 
-uart_send1: btfss PIR1, 4 ; TXIF
-             *bra uart_send1
+uart_send:  btfss PIR1, 4 ; TXIF
+             *bra uart_send
             nop ; See erratum 4.1. Probably not needed, though.
             movwf TX1REG
             return
 
 
-icsp_sendb:
-            ; DAT = W[0]
+icsp_send:
+            movwf icspcount
+
+_is_loop:
+            ; Shift next bit into C.
+            lsrf icsp1
+            rrf icsp0
+
+            ; DAT = C
             movlb LATC
-            btfss WREG, 0
+            btfss STATUS, 0 ; C
              *bcf LATC, 2 ; DAT
-            btfsc WREG, 0
+            btfsc STATUS, 0 ; C
              *bsf LATC, 2 ; DAT
 
             ; CLK = 1
             bsf LATC, 1 ; CLK
 
-            ; Delay about 1 s.
-            movlw 0x10
+            movf delay1_def, 0
             movwf delay1
             movlw 0xFF
             movwf delay0
@@ -468,48 +633,7 @@ icsp_sendb:
             ; CLK = 0
             bcf LATC, 1 ; CLK
 
-            ; Delay about 1 s.
-            movlw 0x10
-            movwf delay1
-            movlw 0xFF
-            movwf delay0
-            call delay
-
-            return
-
-
-icsp_send1:
-            movlw 8
-            movwf icspcount
-
-_is1_loop:
-            ; Shift next bit into C.
-            lsrf icsp0
-
-            ;; DAT = C
-            ;movlb LATC
-            ;btfss STATUS, 0 ; C
-             ;*bcf LATC, 2 ; DAT
-            ;btfsc STATUS, 0 ; C
-             ;*bsf LATC, 2 ; DAT
-
-            ; CLK = 1
-            bsf LATC, 1 ; CLK
-
-            ; Delay about 1 s.
-            movlw 0x10
-            movwf delay1
-            movlw 0xFF
-            movwf delay0
-            call delay
-
-            bcf LATC, 2 ; DAT (debug)
-
-            ; CLK = 0
-            bcf LATC, 1 ; CLK
-
-            ; Delay about 1 s.
-            movlw 0x10
+            movf delay1_def, 0
             movwf delay1
             movlw 0xFF
             movwf delay0
@@ -518,7 +642,7 @@ _is1_loop:
             ; Loop if --icspcount != 0.
             decf icspcount
             btfss STATUS, 2 ; Z
-             *bra _is1_loop
+             *bra _is_loop
 
             return
 
@@ -541,8 +665,7 @@ _isw_loop:
             ; CLK = 1
             bsf LATC, 1 ; CLK
 
-            ; Delay about 1 s.
-            movlw 0x10
+            movf delay1_def, 0
             movwf delay1
             movlw 0xFF
             movwf delay0
@@ -551,8 +674,7 @@ _isw_loop:
             ; CLK = 0
             bcf LATC, 1 ; CLK
 
-            ; Delay about 1 s.
-            movlw 0x10
+            movf delay1_def, 0
             movwf delay1
             movlw 0xFF
             movwf delay0
@@ -567,4 +689,53 @@ _isw_loop:
             btfss STATUS, 2 ; Z
              *bra _isw_loop
 
+            return
+
+
+icsp_recvw:
+            movlw 16
+            movwf icspcount
+
+            bsf TRISC, 2 ; DAT
+
+            bcf STATUS, 0 ; C
+
+_irw_loop:
+            ; (None of this affects C.)
+
+            ; CLK = 1
+            bsf LATC, 1 ; CLK
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            ; CLK = 0
+            bcf LATC, 1 ; CLK
+
+            ; Shift next bit from C into buffer.
+            rlf icsp0
+            rlf icsp1
+
+            btfss LATC, 2 ; DAT
+             bcf STATUS, 0 ; C
+            btfsc LATC, 2 ; DAT
+             bsf STATUS, 0 ; C
+
+            movf delay1_def, 0
+            movwf delay1
+            movlw 0xFF
+            movwf delay0
+            call delay
+
+            ; Loop if --icspcount != 0.
+            decf icspcount ; (doesn't affect C)
+            btfss STATUS, 2 ; Z
+             *bra _irw_loop
+
+            bcf TRISC, 2 ; DAT
+
+            bcf icsp1, 6
             return
