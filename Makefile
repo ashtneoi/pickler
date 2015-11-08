@@ -12,7 +12,7 @@ selffirmware.hex: selffirmware.s $(PIC_AS)
 	$(PIC_AS) $< >$@
 
 
-EXE_SRC := get_info.c selfprogram.c
+EXE_SRC := get_info.c pickler.c
 SRC := $(EXE_SRC) fail.c info.c mcp2221.c
 
 OBJ := $(SRC:%.c=%.o)
@@ -40,11 +40,11 @@ fail.o: common.h fail.h
 get_info.o: common.h fail.h info.h
 info.o: common.h fail.h info.h
 mcp2221.o: common.h fail.h mcp2221.h
-selfprogram.o: common.h fail.h mcp2221.h
+pickler.o: common.h fail.h mcp2221.h
 
 
 get_info: fail.o info.o
-selfprogram: fail.o mcp2221.o
+pickler: fail.o mcp2221.o
 
 
 .DEFAULT_GOAL := all
