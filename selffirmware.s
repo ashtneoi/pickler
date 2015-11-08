@@ -287,10 +287,10 @@ do_fast:
             ; 'I': Increment address
             ; 'A': reset Address
             ; 'P': begin internally timed Programming
-            ; 'E': (begin Externally timed programming)
-            ; 'F': (end externally timed programming)
+            ; 'E': begin Externally timed programming
+            ; 'F': end externally timed programming
             ; 'B': Bulk erase program memory
-            ; 'R': (Row erase program memory)
+            ; 'R': Row erase program memory
 
 handle_cmd:
             movf cmd
@@ -625,7 +625,7 @@ do_P:       movlw 0n001000
 
 
             ;;;
-            ;;; 'E': (begin Externally timed programming)
+            ;;; 'E': begin Externally timed programming
             ;;;
 
 
@@ -645,7 +645,7 @@ do_E:       movlw 0n011000
 
 
             ;;;
-            ;;; 'F': (end externally timed programming)
+            ;;; 'F': end externally timed programming
             ;;;
 
 
@@ -665,7 +665,7 @@ do_F:       movlw 0n001010
 
 
             ;;;
-            ;;; 'B': (Bulk erase program memory)
+            ;;; 'B': Bulk erase program memory
             ;;;
 
 
@@ -685,7 +685,7 @@ do_B:       movlw 0n001001
 
 
             ;;;
-            ;;; 'R': (Row erase program memory)
+            ;;; 'R': Row erase program memory
             ;;;
 
 
