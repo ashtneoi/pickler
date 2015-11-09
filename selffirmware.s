@@ -144,57 +144,81 @@ set_cmd:    movwf cmd
 
 
 start:
-            ;;; Set up ports. ;;;
-
-            clrf LATC
-
-            movlw 0n00000011 ; 1, 0
-            movwf TRISA
-
-            clrf ANSELA
-
-            movlw 0n00101000 ; 5, 3
-            movwf TRISC
-
-            clrf ANSELC
-
             ;;; Set up clock. ;;;
 
             ; SPLLEN = off, IRCF = 1 MHz HF
             movlw 0n01011000
             movwf OSCCON
 
+            ;;; Set up ports. ;;;
+
+            ;   ~MCLR (RC0): out 1
+            ; ICSPCLK (RC1): in (digital)
+            ; ICSPDAT (RC2): in (digital)
+            ;  USBCFG (RC3): in (digital)
+            ;      TX (RC4): out X
+            ;      RX (RC5): in (digital)
+            movlw 0n00000001
+            movwf LATC
+            movlw 0n11101110
+            movwf TRISC
+            movlw 0n11000000
+            movwf ANSELC
+
+            ; RC5 in = RX
+            movlw 0n00010101 ; RC5
+            movwf RXPPS
+
+            ; RC4 out = TX
+            movlw 0n00010100 ; TX/CK
+            movwf RC4PPS
+
             ;;; Determine reset cause. ;;;
 
+            ; stack overflow
             btfsc PCON, 7 ; STKOVF
              movlw 0x6F ; 'o'
-            btfsc PCON, 7 ; STKOVF
+            btfsc PCON, 7
              *bra cause_done
+
+            ; stack underflow
             btfsc PCON, 6 ; STKUNF
              movlw 0x75 ; 'u'
-            btfsc PCON, 6 ; STKUNF
+            btfsc PCON, 6
              *bra cause_done
+
+            ; watchdog timer timeout
             btfss PCON, 4 ; ~RWDT
              movlw 0x77 ; 'w'
-            btfss PCON, 4 ; ~RWDT
+            btfss PCON, 4
              *bra cause_done
+
+            ; MCLR reset
             btfss PCON, 3 ; ~RMCLR
              movlw 0x6D ; 'm'
             btfss PCON, 3 ; ~RMCLR
              *bra cause_done
+
+            ; reset instruction
             btfss PCON, 2 ; ~RI
              movlw 0x72 ; 'r'
             btfss PCON, 2 ; ~RI
              *bra cause_done
+
+            ; power-on reset
             btfss PCON, 1 ; ~POR
              movlw 0x70 ; 'p'
             btfss PCON, 1 ; ~POR
              *bra cause_done
+
+            ; brownout reset
             btfss PCON, 0 ; ~BOR
              movlw 0x62 ; 'b'
             btfss PCON, 0 ; ~BOR
              *bra cause_done
-            movlw 0x7E
+
+            ; unknown
+            movlw 0x7E ; '~'
 
 cause_done: movwf resetcause
 
@@ -207,18 +231,10 @@ cause_done: movwf resetcause
 
             clrf datalen
 
-            movlw 0x10
+            movlw 0x01 ; fast
             movwf delay1_def
 
             ;;; Set up EUSART. ;;;
-
-            ; RC5 in = RX
-            movlw 0n00010101 ; RC5
-            movwf RXPPS
-
-            ; RC4 out = TX
-            movlw 0n00010100 ; TX/CK
-            movwf RC4PPS
 
             ; symbol rate = 1200 baud
             movlw 12
@@ -252,6 +268,8 @@ cause_done: movwf resetcause
             call uart_send
             movf resetcause, 0
             call uart_send
+
+            bra handle_cmd
 
 
             ;;;
@@ -418,7 +436,7 @@ next_cmd:
 
 
 do_N:
-            ; MCLR = 1
+            ; ~MCLR = 1
             bsf LATC, 0
 
             movf delay1_def, 0
@@ -427,8 +445,15 @@ do_N:
             movwf delay0
             call delay
 
-            ; MCLR = 0
+            ; ~MCLR = 0
             bcf LATC, 0
+
+            ; CLK = out 0
+            bcf LATC, 1
+            bcf TRISC, 1
+
+            ; DAT = out
+            bcf TRISC, 2
 
             movf delay1_def, 0
             movwf delay1
@@ -463,7 +488,14 @@ do_N:
             ;;;
 
 
-do_X:       bsf LATC, 0
+do_X:       ; CLK = in (digital)
+            bsf TRISC, 1
+
+            ; DAT = in (digital)
+            bsf TRISC, 2
+
+            ; ~MCLR = 1
+            bsf LATC, 0
 
             movlw 1
             bra cmd_done

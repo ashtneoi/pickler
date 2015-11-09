@@ -374,10 +374,7 @@ void pic_enter_LVP(struct dev* dev)
     if (dev->hid == -1) {
         uart_consume(dev);
 
-        uint8_t cmd = ']';
-        uart_send_cmd(dev, &cmd, 1);
-
-        cmd = 'N';
+        uint8_t cmd = 'N';
         uart_send_cmd(dev, &cmd, 1);
     } else {
         struct gp gp = {0};
