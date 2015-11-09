@@ -153,11 +153,12 @@ void verify_gp_settings(struct dev* dev, uint8_t* ref)
 
     communicate(dev->hid);
 
+    v1("Checking GP settings");
     bool correct = true;
     for (unsigned int u = 4; u <= 7; ++u) {
         if (ref[u - 4] != (uint8_t)dev->ur[u].value) {
             correct = false;
-            v1("[%d]: 0x%02"PRIX8" should be 0x%02"PRIX8"\n",
+            v1("[%d]: 0x%02"PRIX8" should be 0x%02"PRIX8,
                 u, (uint8_t)dev->ur[u].value, ref[u - 4]);
         }
     }
@@ -671,7 +672,7 @@ int main(int argc, char** argv)
         if (argc - first < 1)
             exit_with_usage();
 
-        dev.hid = open(argv[first], O_RDWR | O_NONBLOCK);
+        dev.hid = open(argv[first], O_RDWR);
         if (dev.hid == -1)
             fatal_e(E_COMMON, "Can't open HID device");
 

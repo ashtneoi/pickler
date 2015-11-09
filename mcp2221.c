@@ -19,25 +19,9 @@ struct hiddev_report_info ri;
 
 
 static
-void wait_consume_input(int d)
+void wait()
 {
-    struct pollfd pf = {
-        .fd = d,
-        .events = POLLIN,
-    };
-
-    int r = poll(&pf, 1, 1);
-    if (r == -1)
-        fatal_e(E_COMMON, "Can't poll() device");
-
-    struct hiddev_event garbage;
-    while (true) {
-        if (-1 == read(d, &garbage, sizeof(garbage))) {
-            if (errno == EAGAIN)
-                break;
-            fatal_e(E_COMMON, "Can't read from device");
-        }
-    }
+    usleep(550);
 }
 
 
@@ -54,13 +38,14 @@ void communicate(int d)
     if (0 != ioctl(d, HIDIOCSREPORT, &ri))
         fatal_e(E_COMMON, "Can't send report");
 
-    wait_consume_input(d);
-    /*if (!wait_consume_input(d))*/
-        /*fatal(E_RARE, "Didn't consume any input\n");*/
+    wait();
 
     ri.report_type = HID_REPORT_TYPE_INPUT;
     if (0 != ioctl(d, HIDIOCGREPORT, &ri))
         fatal_e(E_COMMON, "Can't get report");
+
+    wait();
+
     for (unsigned int u = 0; u <= 63; ++u) {
         ur[u].report_type = ri.report_type;
         if (0 != ioctl(d, HIDIOCGUSAGE, &ur[u]))
@@ -97,7 +82,7 @@ struct hiddev_usage_ref* init_report(int d, struct hiddev_report_info* new_ri)
             fatal_e(E_RARE, "Can't get usage code %u", u);
     }
 
-    wait_consume_input(d);
+    wait();
 
     ur[0].value = 0x10;
     communicate(d);
