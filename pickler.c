@@ -647,7 +647,7 @@ int main(int argc, char** argv)
         if (argc - first < 1)
             exit_with_usage();
 
-        dev.tty = open(argv[first + 1], O_RDWR);
+        dev.tty = open(argv[first], O_RDWR);
         if (dev.tty == -1)
             fatal_e(E_COMMON, "Can't open TTY device");
     }
