@@ -295,6 +295,38 @@ unsigned int get_data(struct dev* dev, int len)
 
 
 static
+void uart_consume(struct dev* dev)
+{
+    v2("Consuming leftover output");
+
+    while (true) {
+        struct pollfd pfd = {
+            .fd = dev->tty,
+            .events = POLLIN,
+        };
+
+        int r = poll(&pfd, 1, 1000);
+        if (r == -1)
+            fatal_e(E_COMMON, "Can't poll on TTY");
+        else if (r == 0)
+            break;
+
+        if ( !(pfd.revents & POLLIN) )
+            break;
+
+        char garbage;
+        ssize_t s = read(dev->tty, &garbage, 1);
+        if (s == -1)
+            fatal_e(E_COMMON, "Can't read from TTY");
+        else if (s < 1)
+            fatal(E_COMMON, "Can't read from TTY (maybe poll() lied?)");
+
+        v2("Consumed a leftover char (0x%02X)", garbage);
+    }
+}
+
+
+static
 void uart_send_recv(struct dev* dev, uint8_t* buf, int sendlen, int recvlen)
 {
     if (verbosity >= 2) {
@@ -340,7 +372,12 @@ static
 void pic_enter_LVP(struct dev* dev)
 {
     if (dev->hid == -1) {
-        uint8_t cmd = 'N';
+        uart_consume(dev);
+
+        uint8_t cmd = ']';
+        uart_send_cmd(dev, &cmd, 1);
+
+        cmd = 'N';
         uart_send_cmd(dev, &cmd, 1);
     } else {
         struct gp gp = {0};
@@ -638,9 +675,6 @@ int main(int argc, char** argv)
             verify_gp_settings(&dev, gp_settings_production);
         else
             verify_gp_settings(&dev, gp_settings_development);
-
-        if (opts.print_config)
-            print_config(&dev);
     } else {
         // (assume production mode)
 
@@ -652,7 +686,10 @@ int main(int argc, char** argv)
             fatal_e(E_COMMON, "Can't open TTY device");
     }
 
-    if (!opts.run && !opts.print_config && !opts.production) {
+    if (opts.print_config)
+        print_config(&dev);
+
+    if (!opts.print_config && !opts.production) {
         if (argc - first < 2)
             exit_with_usage();
 
