@@ -338,15 +338,15 @@ void uart_send_recv(struct dev* dev, uint8_t* buf, int sendlen, int recvlen)
 
     ssize_t r = write(dev->tty, buf, sendlen);
     if (r == -1)
-        fatal_e(E_COMMON, "Can't write to device");
+        fatal_e(E_COMMON, "Can't write to UART");
     else if (r < sendlen)
-        fatal(E_COMMON, "Can't write to device");
+        fatal(E_COMMON, "Can't write to UART");
 
     r = read(dev->tty, buf, recvlen);
     if (r == -1)
-        fatal_e(E_COMMON, "Can't read from device");
+        fatal_e(E_COMMON, "Can't read from UART");
     else if (r < recvlen)
-        fatal(E_COMMON, "Can't read from device");
+        fatal(E_COMMON, "Can't read from UART");
 
     if (verbosity >= 2) {
         print("Received");
@@ -363,7 +363,7 @@ void uart_send_cmd(struct dev* dev, uint8_t* cmd, int len)
     uint8_t ack = cmd[0];
     uart_send_recv(dev, cmd, len, 1);
     if (cmd[0] != ack)
-        fatal(E_COMMON, "Programmer can't execute '%c' (returned '%c')", ack,
+        fatal(E_COMMON, "Programmer can't execute '%c' (returned 0x%02X)", ack,
             cmd[0]);
 }
 
