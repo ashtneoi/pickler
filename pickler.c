@@ -303,6 +303,7 @@ void uart_send_recv(struct dev* dev, uint8_t* buf, int sendlen, int recvlen)
             printf(" 0x%02X", buf[i]);
         print("\n");
     }
+
     ssize_t r = write(dev->tty, buf, sendlen);
     if (r == -1)
         fatal_e(E_COMMON, "Can't write to device");
@@ -314,6 +315,7 @@ void uart_send_recv(struct dev* dev, uint8_t* buf, int sendlen, int recvlen)
         fatal_e(E_COMMON, "Can't read from device");
     else if (r < recvlen)
         fatal(E_COMMON, "Can't read from device");
+
     if (verbosity >= 2) {
         print("Received");
         for (int i = 0; i < recvlen; ++i)
@@ -537,6 +539,7 @@ void program_hex_file(struct dev* dev, FILE* f)
     pic_reset_address(dev);
     pic_bulk_erase(dev);
 
+    int l = 1;
     unsigned int pc = 0, len, newpc = 0;
     int r;
     while (true) {
@@ -545,7 +548,8 @@ void program_hex_file(struct dev* dev, FILE* f)
         if (ferror(f))
             fatal_e(E_COMMON, "Can't read from hex file");
         if (r < 3 || r == EOF)
-            fatal(E_COMMON, "Expected colon, length, address, and type");
+            fatal(E_COMMON, "%d: Expected colon, length, address, and type",
+                l);
 
         len /= 2;
         newpc_l /= 2;
@@ -558,7 +562,7 @@ void program_hex_file(struct dev* dev, FILE* f)
             if (ferror(f))
                 fatal_e(E_COMMON, "Can't read from hex file");
             if (r < 1 || r == EOF)
-                fatal(E_COMMON, "Expected upper address");
+                fatal(E_COMMON, "%d: Expected upper address", l);
             newpc = newpc_h << 15;
         } else if (type == 0x00) {
             newpc = (newpc & ~0x7FFF) | newpc_l;
