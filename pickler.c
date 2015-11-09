@@ -695,6 +695,9 @@ int main(int argc, char** argv)
             fatal_e(E_COMMON, "Can't open hex file");
         program_hex_file(&dev, f);
         fclose(f); // and ignore errors
+
+        if (!opts.self)
+            pic_exit_LVP(&dev);
     }
 
     if (opts.run)
