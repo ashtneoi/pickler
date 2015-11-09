@@ -57,6 +57,9 @@
 
             .reg 0, resetcause
 
+            ; ICSP temp bit
+            .reg 0, icspbit
+
             ; delay counters
             .reg 2, delay0
             .reg 2, delay1
@@ -840,10 +843,13 @@ icsp_recvw:
 
             bsf TRISC, 2 ; DAT
 
-            bcf STATUS, 0 ; C
+            bcf icspbit, 0
 
 _irw_loop:
-            ; (None of this affects C.)
+            ; Shift next bit from icspbit into buffer.
+            lsrf icspbit
+            rrf icsp1
+            rrf icsp0
 
             ; CLK = 1
             bsf LATC, 1 ; CLK
@@ -857,14 +863,10 @@ _irw_loop:
             ; CLK = 0
             bcf LATC, 1 ; CLK
 
-            ; Shift next bit from C into buffer.
-            rlf icsp0
-            rlf icsp1
-
-            btfss LATC, 2 ; DAT
-             bcf STATUS, 0 ; C
-            btfsc LATC, 2 ; DAT
-             bsf STATUS, 0 ; C
+            btfss PORTC, 2 ; DAT
+             *bcf icspbit, 0
+            btfsc PORTC, 2 ; DAT
+             *bsf icspbit, 0
 
             movf delay1_def, 0
             movwf delay1
@@ -873,11 +875,17 @@ _irw_loop:
             call delay
 
             ; Loop if --icspcount != 0.
-            decf icspcount ; (doesn't affect C)
+            decf icspcount
             btfss STATUS, 2 ; Z
              *bra _irw_loop
 
             bcf TRISC, 2 ; DAT
 
-            bcf icsp1, 6
+            bcf STATUS, 0 ; C
+            rrf icsp1
+            rrf icsp0
+            bcf STATUS, 0 ; C
+            rrf icsp1
+            rrf icsp0
+
             return
