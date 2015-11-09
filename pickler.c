@@ -46,146 +46,197 @@
 int verbosity;
 
 
-struct opts {
-    bool clk_test_pattern;
-    bool program_file;
-    bool print_config;
-    bool run;
-    bool test;
+uint8_t gp_settings_development[] = {
+    0x00, // GP0: GPIO out 0
+    0x08, // GP1: GPIO in
+    0x08, // GP2: GPIO in
+    0x08, // GP3: GPIO in
 };
+
+
+uint8_t gp_settings_production[] = {
+    0x10, // GP0: GPIO out 1
+    0x08, // GP1: GPIO in
+    0x01, // GP2: USBCFG
+    0x08, // GP3: GPIO in
+};
+
+
+struct opts {
+    bool run;
+    bool self;
+    bool print_config;
+    bool production;
+};
+
+
+struct dev {
+    int hid;
+    int tty;
+    struct hiddev_usage_ref* ur;
+};
+
+
+void exit_with_usage()
+{
+    fputs("Usage:\n", stderr);
+    fputs("  Development mode:\n", stderr);
+    fputs("    pickler -R HID  # Run self.\n", stderr);
+    fputs("    pickler -S[R] HID HEXFILE  # Program [and run] self.\n",
+        stderr);
+    fputs("    pickler -Sc HID  # Print self config memory.\n", stderr);
+    fputs("    pickler -P HID  # Change to production mode.\n", stderr);
+    fputs("  Production mode:\n", stderr);
+    fputs("    pickler TTY HEXFILE  # Program.\n", stderr);
+    fputs("    pickler -c TTY  # Print config memory.\n", stderr);
+
+    exit(E_USAGE);
+}
 
 
 static
 int process_opts(int argc, char** argv, struct opts* opts)
 {
+    opts->run = false;
+    opts->self = false;
+    opts->print_config = false;
+    opts->production = false;
+
     opterr = 0;
     int r;
-    while ((r = getopt(argc, argv, "cfprTv")) != -1) {
+    while ((r = getopt(argc, argv, "cPRS")) != -1) {
         if (r == 'c') {
-            opts->clk_test_pattern = true;
-        } else if (r == 'f') {
-            opts->program_file = true;
-        } else if (r == 'p') {
             opts->print_config = true;
-        } else if (r == 'r') {
+        } else if (r == 'P') {
+            opts->production = true;
+        } else if (r == 'R') {
             opts->run = true;
-        } else if (r == 'T') {
-            opts->test = true;
+        } else if (r == 'S') {
+            opts->self = true;
         } else if (r == 'v') {
             ++verbosity;
         } else if (r == '?') {
-            fatal(E_COMMON, "Invalid option '%c'", optopt);
+            fatal(E_USAGE, "Invalid option '%c'", optopt);
         } else {
             fatal(E_RARE, "Impossible situation");
         }
     }
+
+    if (opts->production && (opts->print_config || opts->run || opts->self))
+        fatal(E_USAGE, "-P is mutually exclusive with -c, -R, and -S");
+    else if (opts->print_config && opts->run)
+        fatal(E_USAGE, "-c and -R are mutually exclusive");
 
     return optind;
 }
 
 
 static
-void verify_fix_gp_settings(int d, struct hiddev_usage_ref* ur)
+void verify_gp_settings(struct dev* dev, uint8_t* ref)
 {
-    // Read flash data (read GP settings) //
+    // Read flash data (read GP settings). //
 
-    ur[0].value = 0xB0; // command
-    ur[1].value = 0x01; // command
+    dev->ur[0].value = 0xB0; // command
+    dev->ur[1].value = 0x01; // command
 
-    communicate(d);
+    communicate(dev->hid);
 
     bool correct = true;
-    uint8_t ref[4] = {0x00, 0x00, 0x01, 0x00};
-    for (unsigned int u = 0; u <= 3; ++u) {
-        if (ref[u] != (uint8_t)ur[u + 4].value) {
+    for (unsigned int u = 4; u <= 7; ++u) {
+        if (ref[u - 4] != (uint8_t)dev->ur[u].value) {
             correct = false;
-            printf("[%d]: 0x%02"PRIX8" should be 0x%02"PRIX8"\n",
-                u, (uint8_t)ur[u + 4].value, ref[u]);
+            v1("[%d]: 0x%02"PRIX8" should be 0x%02"PRIX8"\n",
+                u, (uint8_t)dev->ur[u].value, ref[u - 4]);
         }
     }
     if (!correct) {
-        print("GP settings are incorrect. Fixing...\n");
+        v1("Changing GP settings");
+        // Write flash data (write GP settings). //
 
-        // Write flash data (write GP settings) //
-
-        ur[0].value = 0xB1; // command
-        ur[1].value = 0x01; // command
+        dev->ur[0].value = 0xB1; // command
+        dev->ur[1].value = 0x01; // command
 
         for (unsigned int u = 2; u <= 5; ++u)
-            ur[u].value = ref[u - 2];
+            dev->ur[u].value = ref[u - 2];
 
-        communicate(d);
-
-        print("GP settings fixed.\n");
-        fatal(E_COMMON,
-            "Now reset the programmer and run this program again.");
+        communicate(dev->hid);
     }
+
+    // Set SRAM settings. //
+
+    dev->ur[0].value = 0x60; // command
+    for (unsigned int u = 2; u <= 7; ++u)
+        dev->ur[u].value = 0x00; // Don't change this setting.
+    for (unsigned int u = 8; u <= 11; ++u)
+        dev->ur[u].value = ref[u - 8];
+    communicate(dev->hid);
 }
 
 
 struct gp {
     int n_mclr;
     int clk;
+    int clk_in;
     int dat;
     int dat_in;
 };
 
 
 static
-void set_gp(int d, struct hiddev_usage_ref* ur, struct gp* gp)
+void set_gp(struct dev* dev, struct gp* gp)
 {
     // Set GPIO output values //
 
-    ur[0].value = 0x50; // command
+    dev->ur[0].value = 0x50; // command
 
-    ur[2].value = 0x01; // set GP0
-    ur[3].value = gp->n_mclr; // GP0 = ~MCLR
-    ur[4].value = 0x00; // don't set GP0 dir
+    dev->ur[2].value = 0x01; // set GP0
+    dev->ur[3].value = gp->n_mclr; // GP0 = ~MCLR
+    dev->ur[4].value = 0x00; // don't set GP0 dir
 
-    ur[6].value = 0x01; // set GP1
-    ur[7].value = gp->clk; // GP1 = ISCPCLK
-    ur[8].value = 0x00; // don't set GP1 dir
+    dev->ur[6].value = 0x01; // set GP1
+    dev->ur[7].value = gp->clk; // GP1 = ISCPCLK
+    dev->ur[8].value = 0x01; // set GP1 dir
+    dev->ur[9].value = gp->clk_in; // GP1 dir
 
-    ur[10].value = 0x00; // don't set GP2
-    ur[12].value = 0x00; // don't set GP2 dir
+    dev->ur[10].value = 0x00; // don't set GP2
+    dev->ur[12].value = 0x00; // don't set GP2 dir
 
-    ur[14].value = 0x01; // set GP3
-    ur[15].value = gp->dat; // GP3 = ISCPDAT
-    ur[16].value = 0x01; // set GP3 dir
-    ur[17].value = gp->dat_in; // GP3 dir
+    dev->ur[14].value = 0x01; // set GP3
+    dev->ur[15].value = gp->dat; // GP3 = ISCPDAT
+    dev->ur[16].value = 0x01; // set GP3 dir
+    dev->ur[17].value = gp->dat_in; // GP3 dir
 
-    communicate(d);
+    communicate(dev->hid);
 }
 
 
 static
-int get_dat(int d, struct hiddev_usage_ref* ur)
+int get_dat(struct dev* dev)
 {
     // Get GPIO values //
 
-    ur[0].value = 0x51; // command
+    dev->ur[0].value = 0x51; // command
 
-    communicate(d);
+    communicate(dev->hid);
 
-    return ur[8].value; // GP3 pin value
+    return dev->ur[8].value; // GP3 pin value
 }
 
 
 static
-void send_data_array(int d, struct hiddev_usage_ref* ur, unsigned int* data,
-        int len)
+void send_data_array(struct dev* dev, unsigned int* data, int len)
 {
     struct gp gp = {0};
 
     for (int b = len - 1; b >= 0; --b) {
         gp.dat = data[b];
         gp.clk = 1;
-        set_gp(d, ur, &gp);
+        set_gp(dev, &gp);
 
         usleep(T_CKH);
 
         gp.clk = 0;
-        set_gp(d, ur, &gp);
+        set_gp(dev, &gp);
 
         usleep(T_CKL);
     }
@@ -193,7 +244,7 @@ void send_data_array(int d, struct hiddev_usage_ref* ur, unsigned int* data,
 
 
 static
-void send_data(int d, struct hiddev_usage_ref* ur, unsigned int data, int len)
+void send_data(struct dev* dev, unsigned int data, int len)
 {
     struct gp gp = {0};
 
@@ -201,12 +252,12 @@ void send_data(int d, struct hiddev_usage_ref* ur, unsigned int data, int len)
         gp.dat = data & 1;
         data >>= 1;
         gp.clk = 1;
-        set_gp(d, ur, &gp);
+        set_gp(dev, &gp);
 
         usleep(T_CKH);
 
         gp.clk = 0;
-        set_gp(d, ur, &gp);
+        set_gp(dev, &gp);
 
         usleep(T_CKL);
     }
@@ -214,133 +265,264 @@ void send_data(int d, struct hiddev_usage_ref* ur, unsigned int data, int len)
 
 
 static
-unsigned int get_data(int d, struct hiddev_usage_ref* ur, int len)
+unsigned int get_data(struct dev* dev, int len)
 {
     struct gp gp = {0};
 
     gp.dat_in = 1;
-    set_gp(d, ur, &gp);
+    set_gp(dev, &gp);
 
     unsigned int n = 0;
     for (int b = 0; b < len; ++b) {
         gp.clk = 1;
-        set_gp(d, ur, &gp);
+        set_gp(dev, &gp);
 
         usleep(T_CKH);
 
         gp.clk = 0;
-        set_gp(d, ur, &gp);
+        set_gp(dev, &gp);
 
-        n = (n >> 1) + (get_dat(d, ur) << (len - 1));
+        n = (n >> 1) + (get_dat(dev) << (len - 1));
 
         usleep(T_CKL);
     }
 
     gp.dat_in = 0;
-    set_gp(d, ur, &gp);
+    set_gp(dev, &gp);
 
     return n;
 }
 
 
 static
-void pic_enter_lvp(int d, struct hiddev_usage_ref* ur)
+void uart_send_recv(struct dev* dev, uint8_t* buf, int sendlen, int recvlen)
 {
-    struct gp gp = {0};
+    ssize_t r = write(dev->tty, buf, sendlen);
+    if (r == -1)
+        fatal_e(E_COMMON, "Can't write to device");
+    else if (r < sendlen)
+        fatal(E_COMMON, "Can't write to device");
 
-    gp.n_mclr = 1;
-    set_gp(d, ur, &gp);
-
-    usleep(T_ENTS);
-
-    gp.n_mclr = 0;
-    set_gp(d, ur, &gp);
-
-    usleep(T_ENTH);
-
-    unsigned int key[33] = {
-        0, // don't care
-        0, 1, 0, 0,
-        1, 1, 0, 1,
-        0, 1, 0, 0,
-        0, 0, 1, 1,
-        0, 1, 0, 0,
-        1, 0, 0, 0,
-        0, 1, 0, 1,
-        0, 0, 0, 0,
-    };
-    send_data_array(d, ur, key, lengthof(key));
+    r = read(dev->tty, buf, recvlen);
+    if (r == -1)
+        fatal_e(E_COMMON, "Can't read from device");
+    else if (r < recvlen)
+        fatal(E_COMMON, "Can't read from device");
 }
 
 
 static
-void pic_load_configuration(int d, struct hiddev_usage_ref* ur)
+void uart_send_cmd(struct dev* dev, uint8_t* cmd, int len)
 {
-    send_data(d, ur, 0x00, 6);
-    usleep(T_DLY);
-    send_data(d, ur, 0x00, 16);
-    usleep(T_DLY);
+    uint8_t ack = cmd[0];
+    uart_send_recv(dev, cmd, len, 1);
+    if (cmd[0] != ack)
+        fatal(E_COMMON, "Programmer can't execute '%c'", ack);
 }
 
 
 static
-void pic_load_data(int d, struct hiddev_usage_ref* ur, unsigned int word)
+void pic_enter_LVP(struct dev* dev)
 {
-    send_data(d, ur, 0x02, 6);
-    usleep(T_DLY);
-    send_data(d, ur, word << 1, 16);
-    usleep(T_DLY);
+    if (dev->hid == -1) {
+        uint8_t cmd = 'N';
+        uart_send_cmd(dev, &cmd, 1);
+    } else {
+        struct gp gp = {0};
+
+        gp.clk_in = 1;
+        set_gp(dev, &gp);
+
+        gp.n_mclr = 1;
+        set_gp(dev, &gp);
+
+        usleep(T_ENTS);
+
+        gp.clk_in = 0;
+        set_gp(dev, &gp);
+
+        gp.n_mclr = 0;
+        set_gp(dev, &gp);
+
+        usleep(T_ENTH);
+
+        unsigned int key[33] = {
+            0, // don't care
+            0, 1, 0, 0,
+            1, 1, 0, 1,
+            0, 1, 0, 0,
+            0, 0, 1, 1,
+            0, 1, 0, 0,
+            1, 0, 0, 0,
+            0, 1, 0, 1,
+            0, 0, 0, 0,
+        };
+        send_data_array(dev, key, lengthof(key));
+    }
 }
 
 
 static
-unsigned int pic_read_data(int d, struct hiddev_usage_ref* ur)
+void pic_exit_LVP(struct dev* dev)
 {
-    send_data(d, ur, 0x04, 6);
-    usleep(T_DLY);
-    unsigned int n = (get_data(d, ur, 16) >> 1) & 0x3FFF;
-    usleep(T_DLY);
-    return n;
+    if (dev->hid == -1) {
+        uint8_t cmd = 'X';
+        uart_send_cmd(dev, &cmd, 1);
+    } else {
+        struct gp gp = {0};
+
+        gp.clk_in = 1;
+        set_gp(dev, &gp);
+
+        gp.n_mclr = 1;
+        set_gp(dev, &gp);
+    }
 }
 
 
 static
-void pic_increment_address(int d, struct hiddev_usage_ref* ur)
+void pic_load_configuration(struct dev* dev)
 {
-    send_data(d, ur, 0x06, 6);
-    usleep(T_DLY);
+    if (dev->hid == -1) {
+        uint8_t cmd = 'C';
+        uart_send_cmd(dev, &cmd, 1);
+    } else {
+        send_data(dev, 0x00, 6);
+        usleep(T_DLY);
+        send_data(dev, 0x00, 16);
+        usleep(T_DLY);
+    }
 }
 
 
 static
-void pic_reset_address(int d, struct hiddev_usage_ref* ur)
+void pic_load_data(struct dev* dev, unsigned int word)
 {
-    send_data(d, ur, 0x16, 6);
-    usleep(T_DLY);
+    if (dev->hid == -1) {
+        uint8_t cmd[3] = { 'L', word & 0xFF, (word >> 8) & 0x3F };
+        uart_send_cmd(dev, cmd, 3);
+    } else {
+        send_data(dev, 0x02, 6);
+        usleep(T_DLY);
+        send_data(dev, word << 1, 16);
+        usleep(T_DLY);
+    }
 }
 
 
 static
-void pic_int_program(int d, struct hiddev_usage_ref* ur, bool config)
+unsigned int pic_read_data(struct dev* dev)
 {
-    send_data(d, ur, 0x08, 6);
-    usleep(config ? T_PINTC : T_PINTP);
+    if (dev->hid == -1) {
+        uint8_t buf[3] = { 'D' };
+        uart_send_recv(dev, buf, 1, 3);
+        if (buf[2] != 'D')
+            fatal(E_COMMON, "Programmer can't execute 'D'");
+        return (buf[1] << 8) | buf[0];
+    } else {
+        send_data(dev, 0x04, 6);
+        usleep(T_DLY);
+        unsigned int n = (get_data(dev, 16) >> 1) & 0x3FFF;
+        usleep(T_DLY);
+        return n;
+    }
 }
 
 
 static
-void pic_bulk_erase(int d, struct hiddev_usage_ref* ur)
+void pic_increment_address(struct dev* dev)
 {
-    send_data(d, ur, 0x09, 6);
-    usleep(T_ERAB);
+    if (dev->hid == -1) {
+        uint8_t cmd = 'I';
+        uart_send_cmd(dev, &cmd, 1);
+    } else {
+        send_data(dev, 0x06, 6);
+        usleep(T_DLY);
+    }
 }
 
 
 static
-void program_hex_file(int d, struct hiddev_usage_ref* ur, FILE* f)
+void pic_reset_address(struct dev* dev)
 {
-    pic_reset_address(d, ur);
-    pic_bulk_erase(d, ur);
+    if (dev->hid == -1) {
+        uint8_t cmd = 'A';
+        uart_send_cmd(dev, &cmd, 1);
+    } else {
+        send_data(dev, 0x16, 6);
+        usleep(T_DLY);
+    }
+}
+
+
+static
+void pic_int_program(struct dev* dev, bool config)
+{
+    if (dev->hid == -1) {
+        uint8_t cmd = 'P';
+        uart_send_cmd(dev, &cmd, 1);
+    } else {
+        send_data(dev, 0x08, 6);
+        usleep(config ? T_PINTC : T_PINTP);
+    }
+}
+
+
+static
+void pic_bulk_erase(struct dev* dev)
+{
+    if (dev->hid == -1) {
+        uint8_t cmd = 'B';
+        uart_send_cmd(dev, &cmd, 1);
+    } else {
+        send_data(dev, 0x09, 6);
+        usleep(T_ERAB);
+    }
+}
+
+
+static
+void print_config(struct dev* dev)
+{
+    pic_enter_LVP(dev);
+    pic_load_configuration(dev);
+
+    unsigned int pc = 0x8000;
+    print("User ID:\n");
+    for (/* */; pc <= 0x8003; ++pc) {
+        printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
+            pc, pic_read_data(dev));
+        pic_increment_address(dev);
+    }
+    print("???:\n");
+    for (/* */; pc <= 0x8004; ++pc) {
+        printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
+            pc, pic_read_data(dev));
+        pic_increment_address(dev);
+    }
+    print("Revision and device ID:\n");
+    for (/* */; pc <= 0x8006; ++pc) {
+        printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
+            pc, pic_read_data(dev));
+        pic_increment_address(dev);
+    }
+    print("???:\n");
+    for (/* */; pc <= 0x800F; ++pc) {
+        printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
+            pc, pic_read_data(dev));
+        pic_increment_address(dev);
+    }
+
+    pic_reset_address(dev);
+}
+
+
+static
+void program_hex_file(struct dev* dev, FILE* f)
+{
+    pic_enter_LVP(dev);
+    pic_reset_address(dev);
+    pic_bulk_erase(dev);
 
     unsigned int pc = 0, len, newpc = 0;
     int r;
@@ -369,15 +551,15 @@ void program_hex_file(int d, struct hiddev_usage_ref* ur, FILE* f)
             newpc = (newpc & ~0x7FFF) | newpc_l;
 
             if ((pc < 0x8000 || pc > newpc) && newpc >= 0x8000) {
-                pic_load_configuration(d, ur);
+                pic_load_configuration(dev);
                 pc = 0x8000;
             } else if ((pc >= 0x8000 || pc > newpc) && newpc < 0x8000) {
-                pic_reset_address(d, ur);
+                pic_reset_address(dev);
                 pc = 0x0000;
             }
 
             while (pc < newpc) {
-                pic_increment_address(d, ur);
+                pic_increment_address(dev);
                 ++pc; // no way it'll overflow
             }
 
@@ -389,10 +571,10 @@ void program_hex_file(int d, struct hiddev_usage_ref* ur, FILE* f)
                 if (r < 2 || r == EOF)
                     fatal(E_COMMON, "Expected word");
                 unsigned int word = low + (high << 8);
-                pic_load_data(d, ur, word);
-                pic_int_program(d, ur, false);
+                pic_load_data(dev, word);
+                pic_int_program(dev, false);
                 printf("[0x%04X] = 0x%04X\n", pc, word);
-                pic_increment_address(d, ur);
+                pic_increment_address(dev);
                 ++pc; // no way it'll overflow
             }
         } else {
@@ -410,102 +592,62 @@ void program_hex_file(int d, struct hiddev_usage_ref* ur, FILE* f)
 
 int main(int argc, char** argv)
 {
-    struct opts opts = {0};
+    struct opts opts;
+
     int first = process_opts(argc, argv, &opts);
-    if (opts.program_file + opts.print_config + opts.test > 1)
-        fatal(E_USAGE, "-f, -p, and -T are mutually exclusive");
-    if (argc - first != (opts.program_file ? 2 : 1))
-        fatal(E_USAGE, "Usage: %s [OPTIONS] DEVICE [HEXFILE]", argv[0]);
 
-    int d = open(argv[first], O_RDWR | O_NONBLOCK);
-    if (d == -1)
-        fatal_e(E_COMMON, "Can't open device");
+    struct dev dev = {
+        .hid = -1,
+        .tty = -1,
+        .ur = NULL,
+    };
 
-    struct hiddev_usage_ref* ur;
-    {
+    if (opts.run || opts.self || opts.production) {
+        // (development mode)
+
+        if (argc - first < 1)
+            exit_with_usage();
+
+        dev.hid = open(argv[first], O_RDWR | O_NONBLOCK);
+        if (dev.hid == -1)
+            fatal_e(E_COMMON, "Can't open HID device");
+
         struct hiddev_report_info ri;
         ri.report_id = 0;
-        v1("Initializing...");
-        ur = init_report(d, &ri);
-    }
-    verify_fix_gp_settings(d, ur);
+        v1("Initializing HID device...");
+        dev.ur = init_report(dev.hid, &ri);
 
-    pic_enter_lvp(d, ur);
+        if (opts.production)
+            verify_gp_settings(&dev, gp_settings_production);
+        else
+            verify_gp_settings(&dev, gp_settings_development);
 
-    if (opts.print_config) {
-        pic_load_configuration(d, ur);
+        if (opts.print_config)
+            print_config(&dev);
+    } else {
+        // (assume production mode)
 
-        unsigned int pc = 0x8000;
-        print("User ID:\n");
-        for (/* */; pc <= 0x8003; ++pc) {
-            printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
-                pc, pic_read_data(d, ur));
-            pic_increment_address(d, ur);
-        }
-        print("???:\n");
-        for (/* */; pc <= 0x8004; ++pc) {
-            printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
-                pc, pic_read_data(d, ur));
-            pic_increment_address(d, ur);
-        }
-        print("Revision and device ID:\n");
-        for (/* */; pc <= 0x8006; ++pc) {
-            printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
-                pc, pic_read_data(d, ur));
-            pic_increment_address(d, ur);
-        }
-        print("???:\n");
-        for (/* */; pc <= 0x800F; ++pc) {
-            printf("    [0x%04"PRIX16"]: 0x%04"PRIX16"\n",
-                pc, pic_read_data(d, ur));
-            pic_increment_address(d, ur);
-        }
-        pic_reset_address(d, ur);
+        if (argc - first < 1)
+            exit_with_usage();
+
+        dev.tty = open(argv[first + 1], O_RDWR);
+        if (dev.tty == -1)
+            fatal_e(E_COMMON, "Can't open TTY device");
     }
 
-    if (opts.test) {
-        pic_load_configuration(d, ur);
-        pic_bulk_erase(d, ur);
-        pic_load_data(d, ur, 0x0123);
-        pic_int_program(d, ur, true);
-    }
+    if (!opts.run && !opts.print_config && !opts.production) {
+        if (argc - first < 2)
+            exit_with_usage();
 
-    if (opts.program_file) {
         FILE* f = fopen(argv[first + 1], "r");
         if (f == NULL)
             fatal_e(E_COMMON, "Can't open hex file");
-        program_hex_file(d, ur, f);
+        program_hex_file(&dev, f);
         fclose(f); // and ignore errors
     }
 
-    if (opts.run) {
-        struct gp gp = {
-            .n_mclr = 1,
-            .clk = 0,
-            .dat = 0,
-            .dat_in = 0,
-        };
-        set_gp(d, ur, &gp);
-    }
-
-    if (opts.clk_test_pattern) {
-        struct gp gp = {
-            .n_mclr = 1,
-            .clk = 0,
-            .dat = 0,
-            .dat_in = 0,
-        };
-
-        while (true) {
-            sleep(1);
-            printf("ICSPCLK = %d\n", gp.clk);
-            set_gp(d, ur, &gp);
-            gp.clk = 1 - gp.clk;
-        }
-    }
-
-
-    close(d); // and ignore errors
+    if (opts.run)
+        pic_exit_LVP(&dev);
 
     return 0;
 }
