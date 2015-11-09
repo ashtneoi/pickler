@@ -1,1 +1,2 @@
 - give communicate() another argument specifying the max usage to set
+- check hex file checksums
