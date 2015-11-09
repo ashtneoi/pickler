@@ -67,6 +67,7 @@ struct opts {
     bool self;
     bool print_config;
     bool production;
+    bool program;
 };
 
 
@@ -79,16 +80,18 @@ struct dev {
 
 void exit_with_usage()
 {
-    fputs("Usage:\n", stderr);
-    fputs("  Development mode:\n", stderr);
-    fputs("    pickler -R HID  # Run self.\n", stderr);
-    fputs("    pickler -S[R] HID HEXFILE  # Program [and run] self.\n",
-        stderr);
-    fputs("    pickler -Sc HID  # Print self config memory.\n", stderr);
-    fputs("    pickler -P HID  # Change to production mode.\n", stderr);
-    fputs("  Production mode:\n", stderr);
-    fputs("    pickler TTY HEXFILE  # Program.\n", stderr);
-    fputs("    pickler -c TTY  # Print config memory.\n", stderr);
+    eprint(
+        "Usage:\n"
+        "  Development mode:\n"
+        "    pickler -Sr HID  # Run programmer.\n"
+        "    pickler -S[p] HID HEXFILE  # Program programmer.\n"
+        "    pickler -Spr HID HEXFILE  # Program and run programmer.\n"
+        "    pickler -Sc HID  # Print programmer's configuration memory.\n"
+        "    pickler -D HID  # Change programmer to production mode.\n"
+        "  Production mode:\n"
+        "    pickler [-p] TTY HEXFILE  # Program target.\n"
+        "    pickler -c TTY  # Print target's configuration memory.\n"
+    );
 
     exit(E_USAGE);
 }
@@ -97,22 +100,25 @@ void exit_with_usage()
 static
 int process_opts(int argc, char** argv, struct opts* opts)
 {
-    opts->run = false;
-    opts->self = false;
     opts->print_config = false;
+    opts->program = false;
+    opts->run = false;
     opts->production = false;
+    opts->self = false;
 
     opterr = 0;
     int r;
-    while ((r = getopt(argc, argv, "cvPRS")) != -1) {
+    while ((r = getopt(argc, argv, "cprvDS")) != -1) {
         if (r == 'c') {
             opts->print_config = true;
+        } else if (r == 'p') {
+            opts->program = true;
+        } else if (r == 'r') {
+            opts->run = true;
         } else if (r == 'v') {
             ++verbosity;
-        } else if (r == 'P') {
+        } else if (r == 'D') {
             opts->production = true;
-        } else if (r == 'R') {
-            opts->run = true;
         } else if (r == 'S') {
             opts->self = true;
         } else if (r == '?') {
@@ -122,10 +128,16 @@ int process_opts(int argc, char** argv, struct opts* opts)
         }
     }
 
-    if (opts->production && (opts->print_config || opts->run || opts->self))
-        fatal(E_USAGE, "-P is mutually exclusive with -c, -R, and -S");
-    else if (opts->print_config && opts->run)
-        fatal(E_USAGE, "-c and -R are mutually exclusive");
+    if (opts->production && (opts->print_config || opts->program || opts->run
+            || opts->self))
+        fatal(E_USAGE, "-D is mutually exclusive with -c, -p, -s, and -S");
+    else if (opts->print_config && (opts->program || opts->run))
+        fatal(E_USAGE, "-c is mutually exclusive with -p and -r");
+    else if (opts->run && !opts->self)
+        fatal(E_USAGE, "-r requires -S");
+
+    if (!opts->print_config && !opts->run && !opts->production)
+        opts->program = true;
 
     return optind;
 }
@@ -653,8 +665,8 @@ int main(int argc, char** argv)
         .ur = NULL,
     };
 
-    if (opts.run || opts.self || opts.production) {
-        // (development mode)
+    if (opts.self || opts.production) {
+        // Set up (development mode). //
 
         if (argc - first < 1)
             exit_with_usage();
@@ -673,7 +685,7 @@ int main(int argc, char** argv)
         else
             verify_gp_settings(&dev, gp_settings_development);
     } else {
-        // (assume production mode)
+        // Set up (production mode). //
 
         if (argc - first < 1)
             exit_with_usage();
@@ -684,9 +696,12 @@ int main(int argc, char** argv)
     }
 
     if (opts.print_config)
+        // Print configuration memory. //
         print_config(&dev);
 
-    if (!opts.print_config && !opts.production) {
+    if (opts.program) {
+        // Program hex file. //
+
         if (argc - first < 2)
             exit_with_usage();
 
@@ -701,6 +716,7 @@ int main(int argc, char** argv)
     }
 
     if (opts.run)
+        // Exit LVP. //
         pic_exit_LVP(&dev);
 
     return 0;
