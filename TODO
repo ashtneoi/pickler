@@ -1,2 +1,4 @@
 - give communicate() another argument specifying the max usage to set
+- sleep instead of poll()ing HID device
 - check hex file checksums
+- configure TTY automatically
