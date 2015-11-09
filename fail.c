@@ -6,11 +6,10 @@
 #include <string.h>
 
 
-void vx_(const char* srcname, int line, const char* format, ...)
+void vx_(const char* format, ...)
 {
     va_list args;
     va_start(args, format);
-    fprintf(stdout, "%s:%d: ", srcname, line);
     vfprintf(stdout, format, args);
     putchar('\n');
 }

@@ -104,17 +104,17 @@ int process_opts(int argc, char** argv, struct opts* opts)
 
     opterr = 0;
     int r;
-    while ((r = getopt(argc, argv, "cPRS")) != -1) {
+    while ((r = getopt(argc, argv, "cvPRS")) != -1) {
         if (r == 'c') {
             opts->print_config = true;
+        } else if (r == 'v') {
+            ++verbosity;
         } else if (r == 'P') {
             opts->production = true;
         } else if (r == 'R') {
             opts->run = true;
         } else if (r == 'S') {
             opts->self = true;
-        } else if (r == 'v') {
-            ++verbosity;
         } else if (r == '?') {
             fatal(E_USAGE, "Invalid option '%c'", optopt);
         } else {
@@ -297,6 +297,12 @@ unsigned int get_data(struct dev* dev, int len)
 static
 void uart_send_recv(struct dev* dev, uint8_t* buf, int sendlen, int recvlen)
 {
+    if (verbosity >= 2) {
+        print("Sending");
+        for (int i = 0; i < sendlen; ++i)
+            printf(" 0x%02X", buf[i]);
+        print("\n");
+    }
     ssize_t r = write(dev->tty, buf, sendlen);
     if (r == -1)
         fatal_e(E_COMMON, "Can't write to device");
@@ -308,6 +314,12 @@ void uart_send_recv(struct dev* dev, uint8_t* buf, int sendlen, int recvlen)
         fatal_e(E_COMMON, "Can't read from device");
     else if (r < recvlen)
         fatal(E_COMMON, "Can't read from device");
+    if (verbosity >= 2) {
+        print("Received");
+        for (int i = 0; i < recvlen; ++i)
+            printf(" 0x%02X", buf[i]);
+        print("\n");
+    }
 }
 
 
@@ -317,7 +329,8 @@ void uart_send_cmd(struct dev* dev, uint8_t* cmd, int len)
     uint8_t ack = cmd[0];
     uart_send_recv(dev, cmd, len, 1);
     if (cmd[0] != ack)
-        fatal(E_COMMON, "Programmer can't execute '%c'", ack);
+        fatal(E_COMMON, "Programmer can't execute '%c' (returned '%c')", ack,
+            cmd[0]);
 }
 
 
