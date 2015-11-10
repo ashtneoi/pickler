@@ -309,6 +309,87 @@ unsigned int get_data(struct dev* dev, int len)
 
 
 static
+void uart_consume(int fd)
+{
+    v2("Consuming leftover output");
+
+    while (true) {
+        struct pollfd pfd = {
+            .fd = fd,
+            .events = POLLIN,
+        };
+
+        int r = poll(&pfd, 1, 10);
+        if (r == -1)
+            fatal_e(E_COMMON, "Can't poll on TTY");
+        else if (r == 0)
+            break;
+
+        if ( !(pfd.revents & POLLIN) )
+            break;
+
+        uint8_t garbage;
+        ssize_t s = read(fd, &garbage, 1);
+        if (s == -1)
+            fatal_e(E_COMMON, "Can't read from TTY");
+        else if (s < 1)
+            fatal(E_COMMON, "Can't read from TTY (maybe poll() lied?)");
+
+        v2("Consumed a leftover char (0x%02X)", garbage);
+    }
+}
+
+
+static
+void uart_send(int fd, uint8_t* buf, int len)
+{
+    if (verbosity >= 2) {
+        print("Sending");
+        for (int i = 0; i < len; ++i)
+            printf(" 0x%02X", buf[i]);
+        print("\n");
+    }
+
+    ssize_t r = write(fd, buf, len);
+    if (r == -1)
+        fatal_e(E_COMMON, "Can't write to UART");
+    else if (r < len)
+        fatal(E_COMMON, "Can't write to UART");
+}
+
+
+static
+void uart_send_recv(int fd, uint8_t* buf, int sendlen, int recvlen)
+{
+    uart_send(fd, buf, sendlen);
+
+    ssize_t r = read(fd, buf, recvlen);
+    if (r == -1)
+        fatal_e(E_COMMON, "Can't read from UART");
+    else if (r < recvlen)
+        fatal(E_COMMON, "Can't read from UART");
+
+    if (verbosity >= 2) {
+        print("Received");
+        for (int i = 0; i < recvlen; ++i)
+            printf(" 0x%02X", buf[i]);
+        print("\n");
+    }
+}
+
+
+static
+void uart_send_cmd(int fd, uint8_t* cmd, int len)
+{
+    uint8_t ack = cmd[0];
+    uart_send_recv(fd, cmd, len, 1);
+    if (cmd[0] != ack)
+        fatal(E_COMMON, "Programmer can't execute '%c' (returned 0x%02X)", ack,
+            cmd[0]);
+}
+
+
+static
 void set_up_tty(int fd)
 {
     struct termios t = {
@@ -339,80 +420,14 @@ void set_up_tty(int fd)
     if (t.c_iflag != tt.c_iflag || t.c_oflag != tt.c_oflag
         || t.c_cflag != tt.c_cflag || t.c_lflag != tt.c_lflag)
         fatal(E_RARE, "The TTY attributes we set didn't take effect");
-}
 
+    uart_consume(fd);
 
-static
-void uart_consume(struct dev* dev)
-{
-    v2("Consuming leftover output");
+    uint8_t buf = '_';
+    uart_send(fd, &buf, 1);
+    uart_send_recv(fd, &buf, 1, 1);
 
-    while (true) {
-        struct pollfd pfd = {
-            .fd = dev->tty,
-            .events = POLLIN,
-        };
-
-        int r = poll(&pfd, 1, 1000);
-        if (r == -1)
-            fatal_e(E_COMMON, "Can't poll on TTY");
-        else if (r == 0)
-            break;
-
-        if ( !(pfd.revents & POLLIN) )
-            break;
-
-        char garbage;
-        ssize_t s = read(dev->tty, &garbage, 1);
-        if (s == -1)
-            fatal_e(E_COMMON, "Can't read from TTY");
-        else if (s < 1)
-            fatal(E_COMMON, "Can't read from TTY (maybe poll() lied?)");
-
-        v2("Consumed a leftover char (0x%02X)", garbage);
-    }
-}
-
-
-static
-void uart_send_recv(struct dev* dev, uint8_t* buf, int sendlen, int recvlen)
-{
-    if (verbosity >= 2) {
-        print("Sending");
-        for (int i = 0; i < sendlen; ++i)
-            printf(" 0x%02X", buf[i]);
-        print("\n");
-    }
-
-    ssize_t r = write(dev->tty, buf, sendlen);
-    if (r == -1)
-        fatal_e(E_COMMON, "Can't write to UART");
-    else if (r < sendlen)
-        fatal(E_COMMON, "Can't write to UART");
-
-    r = read(dev->tty, buf, recvlen);
-    if (r == -1)
-        fatal_e(E_COMMON, "Can't read from UART");
-    else if (r < recvlen)
-        fatal(E_COMMON, "Can't read from UART");
-
-    if (verbosity >= 2) {
-        print("Received");
-        for (int i = 0; i < recvlen; ++i)
-            printf(" 0x%02X", buf[i]);
-        print("\n");
-    }
-}
-
-
-static
-void uart_send_cmd(struct dev* dev, uint8_t* cmd, int len)
-{
-    uint8_t ack = cmd[0];
-    uart_send_recv(dev, cmd, len, 1);
-    if (cmd[0] != ack)
-        fatal(E_COMMON, "Programmer can't execute '%c' (returned 0x%02X)", ack,
-            cmd[0]);
+    uart_consume(fd);
 }
 
 
@@ -420,10 +435,8 @@ static
 void pic_enter_LVP(struct dev* dev)
 {
     if (dev->hid == -1) {
-        uart_consume(dev);
-
         uint8_t cmd = 'N';
-        uart_send_cmd(dev, &cmd, 1);
+        uart_send_cmd(dev->tty, &cmd, 1);
     } else {
         struct gp gp = {0};
 
@@ -464,7 +477,7 @@ void pic_exit_LVP(struct dev* dev)
 {
     if (dev->hid == -1) {
         uint8_t cmd = 'X';
-        uart_send_cmd(dev, &cmd, 1);
+        uart_send_cmd(dev->tty, &cmd, 1);
     } else {
         struct gp gp = {0};
 
@@ -482,7 +495,7 @@ void pic_load_configuration(struct dev* dev)
 {
     if (dev->hid == -1) {
         uint8_t cmd = 'C';
-        uart_send_cmd(dev, &cmd, 1);
+        uart_send_cmd(dev->tty, &cmd, 1);
     } else {
         send_data(dev, 0x00, 6);
         usleep(T_DLY);
@@ -497,7 +510,7 @@ void pic_load_data(struct dev* dev, unsigned int word)
 {
     if (dev->hid == -1) {
         uint8_t cmd[3] = { 'L', word & 0xFF, (word >> 8) & 0x3F };
-        uart_send_cmd(dev, cmd, 3);
+        uart_send_cmd(dev->tty, cmd, 3);
     } else {
         send_data(dev, 0x02, 6);
         usleep(T_DLY);
@@ -512,7 +525,7 @@ unsigned int pic_read_data(struct dev* dev)
 {
     if (dev->hid == -1) {
         uint8_t buf[3] = { 'D' };
-        uart_send_recv(dev, buf, 1, 3);
+        uart_send_recv(dev->tty, buf, 1, 3);
         if (buf[2] != 'D')
             fatal(E_COMMON, "Programmer can't execute 'D'");
         return (buf[1] << 8) | buf[0];
@@ -531,7 +544,7 @@ void pic_increment_address(struct dev* dev)
 {
     if (dev->hid == -1) {
         uint8_t cmd = 'I';
-        uart_send_cmd(dev, &cmd, 1);
+        uart_send_cmd(dev->tty, &cmd, 1);
     } else {
         send_data(dev, 0x06, 6);
         usleep(T_DLY);
@@ -544,7 +557,7 @@ void pic_reset_address(struct dev* dev)
 {
     if (dev->hid == -1) {
         uint8_t cmd = 'A';
-        uart_send_cmd(dev, &cmd, 1);
+        uart_send_cmd(dev->tty, &cmd, 1);
     } else {
         send_data(dev, 0x16, 6);
         usleep(T_DLY);
@@ -557,7 +570,7 @@ void pic_int_program(struct dev* dev, bool config)
 {
     if (dev->hid == -1) {
         uint8_t cmd = 'P';
-        uart_send_cmd(dev, &cmd, 1);
+        uart_send_cmd(dev->tty, &cmd, 1);
     } else {
         send_data(dev, 0x08, 6);
         usleep(config ? T_PINTC : T_PINTP);
@@ -570,7 +583,7 @@ void pic_bulk_erase(struct dev* dev)
 {
     if (dev->hid == -1) {
         uint8_t cmd = 'B';
-        uart_send_cmd(dev, &cmd, 1);
+        uart_send_cmd(dev->tty, &cmd, 1);
     } else {
         send_data(dev, 0x09, 6);
         usleep(T_ERAB);
