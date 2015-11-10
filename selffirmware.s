@@ -97,46 +97,59 @@ a0002:      nop
 a0003:      nop
 
 int:
-            btfss PIR1, 5 ; RCIF
-             retfie ; Not sure how we could get here.
-
-            ; Return if error; copy received byte to buf.
+            ; Return if error.
             btfsc RC1STA, 2 ; FERR
              retfie
+
+            ; Copy received byte to buf.
             movf RC1REG, 0
             movwf buf
 
-            ; If cmd is 0, set cmd.
-            movf cmd ; test cmd
-            btfsc STATUS, 2 ; Z
-             *bra set_cmd
+            ; If cmd[7], set data.
+            btfsc cmd, 7
+             *bra set_data
 
-            ; If cmd is 'L' and datalen < 2, set data.
-            movf cmd, 0
-            sublw 0x4C ; 'L'
+            ; If buf is '_', reset programmer.
+            movf buf, 0
+            sublw 0x5F
+            btfsc STATUS, 2 ; Z
+             reset
+
+            ; If cmd is nonzero, return.
+            movf cmd ; test cmd
             btfss STATUS, 2 ; Z
              retfie
 
-            ; If datalen is 2, return.
+            ; Set cmd.
+            movf buf, 0
+            movwf cmd
+            ; If cmd is 'L', set high bit.
+            sublw 0x4C ; 'L'
+            btfsc STATUS, 2 ; Z
+             *bsf cmd, 7
+
+            clrf datalen
+            retfie
+
+set_data:   ; If datalen is 2, return.
             btfsc datalen, 1
              retfie
+
             ; Increment datalen.
             incf datalen
-            ; If datalen is 2, set dataH.
+
+            ; If datalen is now 2, set data1.
             btfsc datalen, 1
              *bra set_data1
             ; Else set data0.
             movf buf, 0
             movwf data0
             retfie
-set_data1:  movf buf, 0
+set_data1:  ; Set data1.
+            movf buf, 0
             movwf data1
+            bcf cmd, 7 ; cmd is ready
             retfie
-
-set_cmd:    movwf cmd
-            clrf datalen
-            retfie
-
 
             ;;;
             ;;; main program
@@ -314,17 +327,12 @@ do_fast:
             ; 'R': Row erase program memory
 
 handle_cmd:
+            ; If cmd is 0 or the high bit is set, do nothing.
             movf cmd
             btfsc STATUS, 2 ; Z
              *bra handle_cmd
-
-            bcf STATUS, 7 ; GIE
-
-            ; If cmd is '_', reset programmer.
-            movf cmd, 0
-            sublw 0x5F
-            btfsc STATUS, 2 ; Z
-             reset
+            btfsc cmd, 7
+             *bra handle_cmd
 
             ; If cmd is '['...
             movf cmd, 0
@@ -426,7 +434,6 @@ cmd_done:
 
 next_cmd:
             clrf cmd
-            bsf STATUS, 7 ; GIE
             bra handle_cmd
 
 
@@ -533,12 +540,7 @@ do_C:       clrf icsp0
             ;;;
 
 
-do_L:       movf datalen, 0
-            sublw 2
-            btfss STATUS, 2 ; Z
-             *bra handle_cmd
-
-            movlw 0n000010
+do_L:       movlw 0n000010
             movwf icsp0
             movlw 6
             call icsp_send
