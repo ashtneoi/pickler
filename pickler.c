@@ -12,6 +12,7 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <termios.h>
 #include <unistd.h>
 
 
@@ -304,6 +305,40 @@ unsigned int get_data(struct dev* dev, int len)
     set_gp(dev, &gp);
 
     return n;
+}
+
+
+static
+void set_up_tty(int fd)
+{
+    struct termios t = {
+        .c_iflag = IGNBRK | IGNPAR,
+        .c_oflag = 0,
+        .c_cflag = CS8 | CREAD | CLOCAL,
+        .c_lflag = 0,
+    };
+
+    t.c_cc[VTIME] = 255;
+    t.c_cc[VMIN] = 255;
+
+    if (-1 == cfsetispeed(&t, B1200))
+        fatal_e(E_COMMON, "Can't set TTY input speed");
+    if (-1 == cfsetospeed(&t, B1200))
+        fatal_e(E_COMMON, "Can't set TTY output speed");
+
+    if (-1 == tcsetattr(fd, TCSAFLUSH, &t))
+        fatal_e(E_COMMON, "Can't set TTY attributes");
+
+    struct termios tt;
+    if (-1 == tcgetattr(fd, &tt))
+        fatal_e(E_COMMON, "Can't get TTY attributes");
+
+    if (-1 == tcflush(fd, TCIOFLUSH))
+        fatal_e(E_RARE, "Can't flush TTY buffers");
+
+    if (t.c_iflag != tt.c_iflag || t.c_oflag != tt.c_oflag
+        || t.c_cflag != tt.c_cflag || t.c_lflag != tt.c_lflag)
+        fatal(E_RARE, "The TTY attributes we set didn't take effect");
 }
 
 
@@ -694,6 +729,8 @@ int main(int argc, char** argv)
         dev.tty = open(argv[first], O_RDWR);
         if (dev.tty == -1)
             fatal_e(E_COMMON, "Can't open TTY device");
+
+        set_up_tty(dev.tty);
     }
 
     if (opts.print_config)
