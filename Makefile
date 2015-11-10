@@ -5,7 +5,7 @@ MAKEFLAGS += --no-builtin-rules
 .DELETE_ON_ERROR:
 
 
-PIC_AS := ~/conspicuous/cpic
+PIC_AS := ./cpic
 
 
 selffirmware.hex: selffirmware.s $(PIC_AS)

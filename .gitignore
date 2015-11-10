@@ -2,5 +2,6 @@
 *.o
 *.hex
 
+/cpic
 /get_info
 /pickler
