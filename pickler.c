@@ -425,7 +425,8 @@ void set_up_tty(int fd)
 
     uint8_t buf = '_';
     uart_send(fd, &buf, 1);
-    uart_send_recv(fd, &buf, 1, 1);
+    uart_send(fd, &buf, 1);
+    uart_send_recv(fd, &buf, 1, 4);
 
     uart_consume(fd);
 }
