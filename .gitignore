@@ -1,0 +1,6 @@
+.*.sw?
+*.o
+*.hex
+
+/get_info
+/pickler
