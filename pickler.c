@@ -16,6 +16,8 @@
 #include <unistd.h>
 
 
+#define UARTBAUD B2400
+
 #define T_ENTS 1
 // >= 100 ns
 
@@ -402,9 +404,9 @@ void set_up_tty(int fd)
     t.c_cc[VTIME] = 255;
     t.c_cc[VMIN] = 255;
 
-    if (-1 == cfsetispeed(&t, B1200))
+    if (-1 == cfsetispeed(&t, UARTBAUD))
         fatal_e(E_COMMON, "Can't set TTY input speed");
-    if (-1 == cfsetospeed(&t, B1200))
+    if (-1 == cfsetospeed(&t, UARTBAUD))
         fatal_e(E_COMMON, "Can't set TTY output speed");
 
     if (-1 == tcsetattr(fd, TCSAFLUSH, &t))
@@ -632,8 +634,9 @@ static
 void program_hex_file(struct dev* dev, FILE* f)
 {
     pic_enter_LVP(dev);
-    pic_reset_address(dev);
+    pic_load_configuration(dev);
     pic_bulk_erase(dev);
+    pic_reset_address(dev);
 
     int l = 1;
     unsigned int pc = 0, len, newpc = 0;
