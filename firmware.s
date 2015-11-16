@@ -59,7 +59,7 @@
             .sfr 0x392, IOCAN
             .sfr 0x393, IOCAF
             .sfr 0x39A, CLKRCON
-            .sfr 0x39B, CRCON
+            .sfr 0x39B, ACTCON
             .sfr 0x611, PWM1DCL
             .sfr 0x612, PWM1DCH
             .sfr 0x613, PWM1CON
