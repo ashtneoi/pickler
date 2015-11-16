@@ -95,3 +95,56 @@
             .sfr 0xFED, STKPTR
             .sfr 0xFEE, TOSL
             .sfr 0xFEF, TOSH
+
+
+            ;;;
+            ;;; various declarations
+            ;;;
+
+
+            ; FCMEN = off, IESO = off, ~CLKOUTEN = off, BOREN = on, ~CP = off,
+            ; ~PWRTE = off, WDTE = off, FOSC = INTOSC
+            .cfg 0x8007, 0n00_1111_1110_0100
+            ; LVP = on, ~DEBUG = off, ~LPBOR = off, BORV = low, STVREN = on,
+            ; PLLEN = on, PLLMULT = 4x, USBLSCLK = 48 MHz / 8, CPUDIV = 1,
+            ; WRT = off
+            .cfg 0x8008, 0n11_1111_0100_1111
+
+
+            ;;;
+            ;;; interrupt vectors
+            ;;;
+
+
+reset:      goto start
+a0002:      nop
+a0003:      nop
+
+int:        retfie
+
+
+            ;;;
+            ;;; main program
+            ;;;
+
+
+start:
+            ;;; Set up clock. ;;;
+
+            ; SPLLMULT = 4x, IRCF = 16 MHz, SCS = config
+            movlw 0n10111100
+            movwf OSCCON
+
+pllunrdy:   btfsc OSCSTAT, 6 ; PLLRDY
+             *bra pllunrdy
+
+            bsf ACTCON, 4 ; ACTSRC = USB
+            bsf ACTCON, 7 ; ACTEN = on
+
+            ; UTEYE = on (!!!), UPUEN = on, FSEN = on, PPB = off
+            movlw 0n10010100
+            movwf UCFG
+
+            bsf UCON, 3 ; USBEN = on
+
+loop:       goto loop
