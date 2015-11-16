@@ -750,9 +750,13 @@ int main(int argc, char** argv)
         set_up_tty(dev.tty);
     }
 
-    if (opts.print_config)
+    if (opts.print_config) {
         // Print configuration memory. //
         print_config(&dev);
+
+        if (!opts.self)
+            pic_exit_LVP(&dev);
+    }
 
     if (opts.program) {
         // Program hex file. //
