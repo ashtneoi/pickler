@@ -356,6 +356,12 @@ pllwait:    *btfss OSCSTAT, 6 ; PLLRDY
             movwf BD0STAT
             bsf BD0STAT, 7 ; UOWN = SIE
 
+            movlw 0x50
+            movwf BD1CNT
+            movlw 0n10001000
+            movwf BD1STAT
+            bsf BD1STAT, 7 ; UOWN = SIE
+
             bsf UCON, 3 ; USBEN = on
 
             ;;; Wait for USB reset. ;;;
@@ -378,17 +384,24 @@ rstwait:    *btfss UIR, 0 ; URSTIF
 
 default:    ; Wait for SETUP token.
 
-            movlb UCON
+            ;movlb UCON
+            ;movlp _d_wait
+;_d_wait:    *btfsc UCON, 4 ; PKTDIS
+              ;*goto _d_wait
+
+            movlb BD0STAT
             movlp _d_wait
-_d_wait:    *btfsc UCON, 4 ; PKTDIS
+_d_wait:    *btfsc BD0STAT, 7 ; UOWN
               *goto _d_wait
 
-            movf BD0STAT, 0
-            andlw 0n01111111 ; mask
-            sublw 0n00000000
-            movlb LATC
-            btfsc STATUS, 2 ; Z
-              *bsf LATC, 2
+            bsf LATC, 2
+
+            ;movf BD0STAT, 0
+            ;andlw 0n10000000 ; mask
+            ;sublw 0n10000000
+            ;movlb LATC
+            ;btfsc STATUS, 2 ; Z
+              ;*bsf LATC, 2
 
             ;movf BD0CNT, 0
             ;sublw 0x50
