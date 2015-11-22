@@ -3,8 +3,6 @@
             ;;;
 
 
-            .gpr 0x330, 0x64F
-
             .sfr 0x00C, PORTA
             .sfr 0x00E, PORTC
             .sfr 0x011, PIR1
@@ -98,6 +96,47 @@
 
 
             ;;;
+            ;;; PIC16(L)F1454 USB registers
+            ;;;
+
+
+            .gpr 0x330, 0x64F
+
+            .sfr 0x020, BD0STAT
+            .sfr 0x021, BD0CNT
+            .sfr 0x022, BD0ADRL
+            .sfr 0x023, BD0ADRH
+            .sfr 0x024, BD1STAT
+            .sfr 0x025, BD1CNT
+            .sfr 0x026, BD1ADRL
+            .sfr 0x027, BD1ADRH
+            .sfr 0x028, BD2STAT
+            .sfr 0x029, BD2CNT
+            .sfr 0x02A, BD2ADRL
+            .sfr 0x02B, BD2ADRH
+            .sfr 0x02C, BD3STAT
+            .sfr 0x02D, BD3CNT
+            .sfr 0x02E, BD3ADRL
+            .sfr 0x02F, BD3ADRH
+            .sfr 0x030, BD4STAT
+            .sfr 0x031, BD4CNT
+            .sfr 0x032, BD4ADRL
+            .sfr 0x033, BD4ADRH
+            .sfr 0x034, BD5STAT
+            .sfr 0x035, BD5CNT
+            .sfr 0x036, BD5ADRL
+            .sfr 0x037, BD5ADRH
+            .sfr 0x038, BD6STAT
+            .sfr 0x039, BD6CNT
+            .sfr 0x03A, BD6ADRL
+            .sfr 0x03B, BD6ADRH
+            .sfr 0x03C, BD7STAT
+            .sfr 0x03D, BD7CNT
+            .sfr 0x03E, BD7ADRL
+            .sfr 0x03F, BD7ADRH
+
+
+            ;;;
             ;;; various declarations
             ;;;
 
@@ -106,9 +145,9 @@
             ; ~PWRTE = off, WDTE = off, FOSC = INTOSC
             .cfg 0x8007, 0n00_1111_1110_0100
             ; LVP = on, ~DEBUG = off, ~LPBOR = off, BORV = low, STVREN = on,
-            ; PLLEN = on, PLLMULT = 4x, USBLSCLK = 48 MHz / 8, CPUDIV = 1,
+            ; PLLEN = on, PLLMULT = 3x, USBLSCLK = 48 MHz / 8, CPUDIV = 1,
             ; WRT = off
-            .cfg 0x8008, 0n11_1111_0100_1111
+            .cfg 0x8008, 0n11_1111_1100_1111
 
 
             ;;;
@@ -116,12 +155,46 @@
             ;;;
 
 
-reset:      goto start
+reset:      ; (state = ?)
+            goto start
 a0002:      nop
 a0003:      nop
 
-int:        retfie
+int:        btfsc UIR, 4 ; IDLEIF
+              *bra usbidle ; (Interrupts are disabled.)
+            btfsc UIR, 0 ; URSTIF
+              *bra usbreset ; (Interrupts are disabled.)
+            retfie
 
+usbidle:    ; Clear interrupt flag.
+            bcf UIR, 4 ; IDLEIF
+
+            ; Enable bus activity interrupt.
+            bsf UIE, 2 ; ACTVIE
+
+            ; Sleep until bus activity.
+            bsf UCON, 1 ; SUSPND
+            movlb UIR
+_ui_slp:    sleep
+            *btfss UIR, 2 ; ACTVIF
+              *bra _ui_slp ; (Interrupts are disabled.)
+
+            ; Disable bus activity interrupt.
+            bcf UIE, 2 ; ACTVIE
+
+            ; Wake up.
+            movlb UCON
+_ui_actv:   *bcf UCON, 1 ; SUSPND
+            *btfsc UCON, 1 ; SUSPND
+              *bra _ui_actv ; (Interrupts are disabled.)
+
+            retfie
+
+usbreset:   ; Reinitialize stack.
+            movlw 0x1F
+            movwf STKPTR ; (Interrupts are disabled.)
+
+            goto default ; (Interrupts are disabled.)
 
             ;;;
             ;;; main program
@@ -131,20 +204,106 @@ int:        retfie
 start:
             ;;; Set up clock. ;;;
 
-            ; SPLLMULT = 4x, IRCF = 16 MHz, SCS = config
-            movlw 0n10111100
+            ; SPLLEN = X, SPLLMULT = 3x, IRCF = 16 MHz, SCS = config
+            movlw 0n01111100
             movwf OSCCON
 
-pllunrdy:   btfsc OSCSTAT, 6 ; PLLRDY
-             *bra pllunrdy
+            ; ACTEN = on, ACTUD = on, ACTSRC = USB
+            movlw 0n10010000
+            movwf ACTCON
 
-            bsf ACTCON, 4 ; ACTSRC = USB
-            bsf ACTCON, 7 ; ACTEN = on
+            ;;; Set up ports. ;;;
 
-            ; UTEYE = on (!!!), UPUEN = on, FSEN = on, PPB = off
-            movlw 0n10010100
+            ;      (D+) RA0: X
+            ;      (D-) RA1: X
+            ;   (~MCLR) RA3: X
+            ; (SELFCLK) RA4: out 0
+            ; (SELFDAT) RA5: out 0
+            ; (ICSPDAT) RC0: in (analog)
+            ; (ICSPCLK) RC1: in (analog)
+            ;           RC2: out 0
+            ;           RC3: out 0
+            ;           RC4: out 0
+            ;           RC5: in (digital)
+
+            clrf LATA
+            clrf LATC
+
+            movlw 0n11001111
+            movwf TRISA
+            movlw 0n11100011
+            movwf TRISC
+
+            movlw 0n11001111
+            movwf ANSELA
+            movlw 0n11000011
+            movwf ANSELC
+
+            ;;; Wait for clock to stabilize. ;;;
+
+            movlb OSCSTAT
+hfwait:     *btfss OSCSTAT, 0 ; HFIOFS
+              *bra hfwait ; (Interrupts are disabled.)
+
+            movlb OSCSTAT
+pllwait:    *btfss OSCSTAT, 6 ; PLLRDY
+              *bra pllwait ; (Interrupts are disabled.)
+
+            ;;; Set up USB module. ;;;
+
+            ; UTEYE = off, UPUEN = on, FSEN = full-speed, PPB = off
+            movlw 0n00010100
             movwf UCFG
+
+            ; SOFIE = off, STALLIE = off, IDLEIE = on, TRNIE = off,
+            ; ACTVIE = off, UERRIE = off, URSTIE = off
+            movlw 0n00010000
+            movwf UIE
+
+            ;;; Set up endpoint 0. ;;;
+
+            ; EPHSHK = on, EPCONDIS = on, EPOUTEN = off, EPINEN = off,
+            ; EPSTALL = off
+            movlw 0n00010000
+            movwf UEP0
+
+            ; UOWN = firmware, DTS = 0, DTSEN = on, BSTALL = off,
+            ; BC[9:8] = 0b00
+            movlw 0n00001000
+            movwf BD0STAT
+
+            movlw 64
+            movwf BD0CNT
+
+            movlw 0x20
+            movwf BD0ADRH
+            movlw 0x50
+            movwf BD0ADRL
+
+            ;;; Enable USB module. ;;;
 
             bsf UCON, 3 ; USBEN = on
 
-loop:       goto loop
+            ;;; Wait for USB reset. ;;;
+
+            movlb UIR
+rstwait:    *btfss UIR, 0 ; URSTIF
+              *bra usbreset ; (Interrupts are disabled.)
+            bcf UIR, 0 ; URSTIF
+
+            ;;; Enable interrupts and endpoint 0. ;;;
+
+            bsf UEP0, 2 ; EPOUTEN
+            bsf UEP0, 1 ; EPINEN
+            bsf INTCON, 7 ; GIE
+
+            ;;; Handle setup transfers. ;;;
+
+default:    movlp _d_wait
+            movlw 0n00000100
+_d_wait:    xorwf LATC
+            btfss UIR, 3 ; TRNIF
+              *goto _d_wait
+
+            movlp stop
+stop:       *goto stop
