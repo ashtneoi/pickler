@@ -183,11 +183,16 @@
 
             .sfr 0x120, setup_bmRequestType
             .sfr 0x121, setup_bRequest
-            .sfr 0x122, setup_wValue
-            .sfr 0x124, setup_wIndex
-            .sfr 0x126, setup_wLength
+            .sfr 0x122, setup_wValue0
+            .sfr 0x123, setup_wValue1
+            .sfr 0x124, setup_wIndex0
+            .sfr 0x125, setup_wIndex1
+            .sfr 0x126, setup_wLength0
+            .sfr 0x127, setup_wLength1
 
             .reg 6, newaddr
+            .reg 6, trncounter
+            .reg 6, copylen
 
 
             ;;;
@@ -311,9 +316,11 @@ se0wait:    *btfsc UCON, 5 ; SE0
 
             ;;; Handle setup transfers. ;;;
 
+            movlw 2
+            movwf trncounter
+
 default:    ; Wait for SETUP token.
 
-            bcf UIR, 3 ; TRNIF
             movlw 0x20
             movwf BD0ADRH
             movlw 0xA0
@@ -329,18 +336,17 @@ default:    ; Wait for SETUP token.
 _d_wait:    *btfss UCON, 4 ; PKTDIS
               *goto _d_wait
 
-            bsf LATC, 2
+            ;decf trncounter
+            ;movlp debug
+            ;btfsc STATUS, 2 ; Z
+              ;*goto debug
 
             call control
             movf newaddr, 0
             movlb UADDR
-            *btfsc STATUS, 2 ; Z
+            *btfss STATUS, 2 ; Z
               *movwf UADDR
-            movlb newaddr
-            *btfsc STATUS, 2 ; Z
-              *clrf newaddr
-
-            bcf LATC, 2
+            clrf newaddr
 
             ;call control
             ;movlb LATC
@@ -348,6 +354,13 @@ _d_wait:    *btfss UCON, 4 ; PKTDIS
               ;*bsf LATC, 2
 
             goto default
+
+
+debug:      movf setup_bRequest, 0
+            call print
+            movf setup_wLength0, 0
+            call print
+            goto freeze
 
 
             ;;;
@@ -375,13 +388,11 @@ control:    ; If request has the wrong length, ignore it.
             btfsc STATUS, 2 ; Z
               *goto set_address
 
-            goto get_descriptor
-
-            ;movf setup_bRequest, 0
-            ;sublw 6 ; GET_DESCRIPTOR
-            ;movlp get_descriptor
-            ;btfsc STATUS, 2 ; Z
-              ;*goto get_descriptor
+            movf setup_bRequest, 0
+            sublw 6 ; GET_DESCRIPTOR
+            movlp get_descriptor
+            btfsc STATUS, 2 ; Z
+              *goto get_descriptor
 
             return
 
@@ -390,11 +401,20 @@ ctrlnodata: movlw 0
             movwf BD1CNT
             movlw 0n01001000
             movwf BD1STAT
+
             bsf BD1STAT, 7 ; UOWN = SIE
             bcf UCON, 4 ; PKTDIS
+
+            movlb BD1STAT
             movlp _cnd_wait
 _cnd_wait:  *btfsc BD1STAT, 7 ; UOWN
               *goto _cnd_wait
+
+            movlb UIR
+            movlp _cnd_wait2
+_cnd_wait2: *btfss UIR, 3 ; TRNIF
+              *goto _cnd_wait2
+            bcf UIR, 3
 
             return
 
@@ -403,24 +423,50 @@ ctrlread:   movlw 0x20
             movwf BD1ADRH
             movlw 0xF0
             movwf BD1ADRL
-            movlw 18
+            movlw 8
             movwf BD1CNT
             movlw 0n01001000
             movwf BD1STAT
+
             bsf BD1STAT, 7 ; UOWN = SIE
             bcf UCON, 4 ; PKTDIS
-            movlp _cr_wait
-_cr_wait:   *btfsc BD1STAT, 7 ; UOWN
-              *goto _cr_wait
 
-            movlw 0
+            movlb BD1STAT
+            movlp _cr_wait1
+_cr_wait1:  *btfsc BD1STAT, 7 ; UOWN
+              *goto _cr_wait1
+
+            movlb UIR
+            movlp _cr_wait2
+_cr_wait2:  *btfss UIR, 3 ; TRNIF
+              *goto _cr_wait2
+            bcf UIR, 3
+
+            movlw 0x20
+            movwf BD0ADRH
+            movlw 0xA0
+            movwf BD0ADRL
+            movlw 64
             movwf BD0CNT
             movlw 0n01001000
             movwf BD0STAT
+
             bsf BD0STAT, 7 ; UOWN = SIE
-            movlp _cr_wait2
-_cr_wait2:  *btfsc BD0STAT, 7 ; UOWN
-              *goto _cr_wait2
+
+            movlb BD0STAT
+            movlp _cr_wait3
+_cr_wait3:  *btfsc BD0STAT, 7 ; UOWN
+              *goto _cr_wait3
+
+            movf BD0CNT, 0
+            call print
+            goto freeze
+
+            movlb UIR
+            movlp _cr_wait4
+_cr_wait4:  *btfss UIR, 3 ; TRNIF
+              *goto _cr_wait4
+            bcf UIR, 3
 
             return
 
@@ -431,7 +477,7 @@ _cr_wait2:  *btfsc BD0STAT, 7 ; UOWN
 
 
 set_address:
-            movf setup_wValue, 0
+            movf setup_wValue0, 0
             movwf newaddr
             goto ctrlnodata
 
@@ -452,42 +498,16 @@ get_descriptor:
 
             ;;; Get Device Descriptor ;;;
 
-            movlw 18 ; bLength
-            movwf 0x2A0
-            movlw 1 ; bDescriptorType = DEVICE
-            movwf 0x2A1
-            movlw 0x00 ; bcdUSB = 0x0200
-            movwf 0x2A2
-            movlw 0x02 ; same
-            movwf 0x2A3
-            movlw 0xFF ; bDeviceClass = vendor-specific
-            movwf 0x2A4
-            movlw 0x00 ; bDeviceSubClass
-            movwf 0x2A5
-            movlw 0xFF ; bDeviceProtocol = vendor-specific
-            movwf 0x2A6
-            movlw 64 ; bMaxPacketSize0
-            movwf 0x2A7
-            movlw 0xD8 ; idVendor
-            movwf 0x2A8
-            movlw 0x04 ; same
-            movwf 0x2A9
-            movlw 0x00 ; idProduct
-            movwf 0x2AA
-            movlw 0x40 ; same
-            movwf 0x2AB
-            movlw 0x01 ; bcdDevice
-            movwf 0x2AC
-            movlw 0x00 ; same
-            movwf 0x2AD
-            movlw 0x00 ; iManufacturer
-            movwf 0x2AE
-            movlw 0x00 ; iProduct
-            movwf 0x2AF
-            movlw 0x00 ; iSerialNumber
-            movwf 0x2B0
-            movlw 0x00 ; bNumConfigurations
-            movwf 0x2B1
+            movphw device_descriptor
+            movwf FSR0H
+            movplw device_descriptor
+            movwf FSR0L
+            movlw 0x20
+            movwf FSR1H
+            movlw 0xF0
+            movwf FSR1L
+            movlw 8
+            call copy
 
             goto ctrlread
 
@@ -506,3 +526,86 @@ _gd_eo:     movlp _gd_o
 _gd_o:      ;;; Get Other Descriptor (?) ;;;
 
             return
+
+
+copy:       movwf copylen
+            movlp _c_lp
+_c_lp:      moviw FSR0++
+            movwi FSR1++
+            *decfsz copylen
+              *goto _c_lp
+
+            return
+
+
+print:      movwf 0x7E
+            movlw 0n10101010
+            movwf 0x7F
+
+            movlb LATC
+
+            movlw 16
+            movwf 0x7D
+
+_p_loop:    lslf 0x7E
+            rlf 0x7F
+
+            btfsc STATUS, 0 ; C
+              *bsf LATC, 2
+            btfss STATUS, 0 ; C
+              *bcf LATC, 2
+
+            movlw 0x0A
+            movwf 0x72
+
+            movlw 0xFF
+            movwf 0x71
+            movwf 0x70
+
+_p_dly:     movlp _p_dly
+            decfsz 0x70
+              *goto _p_dly
+            movlp _p_dly
+            decfsz 0x71
+              *goto _p_dly
+            movlp _p_dly
+            decfsz 0x72
+              *goto _p_dly
+
+            movlp _p_loop
+            decfsz 0x7D
+              *goto _p_loop
+
+            bcf LATC, 2
+
+            return
+
+
+
+freeze:     goto freeze
+
+
+            ;;;
+            ;;; data
+            ;;;
+
+
+device_descriptor:
+            movlw 8 ; bLength
+            movlw 1 ; bDescriptorType = DEVICE
+            movlw 0x00 ; bcdUSB = 0x0200
+            movlw 0x02 ; same
+            movlw 0xFF ; bDeviceClass = vendor-specific
+            movlw 0x00 ; bDeviceSubClass
+            movlw 0xFF ; bDeviceProtocol = vendor-specific
+            movlw 64 ; bMaxPacketSize0
+            movlw 0xD8 ; idVendor
+            movlw 0x04 ; same
+            movlw 0x00 ; idProduct
+            movlw 0x40 ; same
+            movlw 0x01 ; bcdDevice
+            movlw 0x00 ; same
+            movlw 0x00 ; iManufacturer
+            movlw 0x00 ; iProduct
+            movlw 0x00 ; iSerialNumber
+            movlw 0x00 ; bNumConfigurations
