@@ -208,10 +208,7 @@ int:        btfss PIR2, 2 ; USBIF
 
 usbidle:    ; Clear interrupt flags.
             bcf UIR, 4 ; IDLEIF
-            movf UIR
-            movlb PIR2
-            btfsc STATUS, 2 ; Z
-              *bcf PIR2, 2 ; USBIF
+            bcf PIR2, 2 ; USBIF
 
             ; Enable bus activity interrupt.
             bsf UIE, 2 ; ACTVIE
@@ -228,9 +225,12 @@ _ui_slp:    sleep
             bcf UIE, 2 ; ACTVIE
 
             ; Wake up.
-            movlb UCON
-_ui_actv:   *bcf UCON, 1 ; SUSPND
-            *btfsc UCON, 1 ; SUSPND
+            bcf UCON, 1 ; SUSPND
+
+            ; Clear bus activity flag.
+            movlb UIR
+_ui_actv:   *bcf UIR, 2 ; ACTVIF
+            *btfsc UIR, 2 ; ACTVIF
               *bra _ui_actv ; (Interrupts are disabled.)
 
             retfie
@@ -324,8 +324,6 @@ pllwait:    *btfss OSCSTAT, 6 ; PLLRDY
             movlw 0n00001000
             movwf BD0STAT
 
-            bsf BD0STAT, 7 ; UOWN = SIE
-
             ; bank 2
             movlw 0x20
             movwf BD0ADRH
@@ -333,11 +331,6 @@ pllwait:    *btfss OSCSTAT, 6 ; PLLRDY
             movwf BD0ADRL
 
             ;;; Set up BD 1 (EP0 IN). ;;;
-
-            ; UOWN = firmware, DTS = 0, DTSEN = on, BSTALL = off,
-            ; BC[9:8] = 0b00
-            movlw 0n00001000
-            movwf BD0STAT
 
             ; bank 3
             movlw 0x20
@@ -356,6 +349,12 @@ pllwait:    *btfss OSCSTAT, 6 ; PLLRDY
             clrf UEP7
 
             ;;; Enable USB module. ;;;
+
+            movlw 0x50
+            movwf BD0CNT
+            movlw 0n10001000
+            movwf BD0STAT
+            bsf BD0STAT, 7 ; UOWN = SIE
 
             bsf UCON, 3 ; USBEN = on
 
@@ -379,12 +378,6 @@ rstwait:    *btfss UIR, 0 ; URSTIF
 
 default:    ; Wait for SETUP token.
 
-            movlw 0x50
-            movwf BD0CNT
-            movlw 0n11111100 ; BC[9:8] mask
-            andwf BD0STAT
-            bsf BD0STAT, 7 ; UOWN
-
             movlb UCON
             movlp _d_wait
 _d_wait:    *btfsc UCON, 4 ; PKTDIS
@@ -392,7 +385,7 @@ _d_wait:    *btfsc UCON, 4 ; PKTDIS
 
             movf BD0STAT, 0
             andlw 0n01111111 ; mask
-            sublw 0n10000000
+            sublw 0n00000000
             movlb LATC
             btfsc STATUS, 2 ; Z
               *bsf LATC, 2
@@ -405,12 +398,18 @@ _d_wait:    *btfsc UCON, 4 ; PKTDIS
 
             ;call setup
 
+            movlw 0x50
+            movwf BD0CNT
+            movlw 0n10001000
+            movwf BD0STAT
+            bsf BD0STAT, 7 ; UOWN = SIE
+
             bcf UCON, 4 ; PKTDIS
 
             goto default
 
 
-setup:      ; If request type is Vendor or Reserved, halt.
+setup:      ; If request type is Vendor or Reserved, ignore request.
             movlp setup_done
             btfsc bmRequestType, 6 ; Vendor or Reserved
               *goto setup_done
