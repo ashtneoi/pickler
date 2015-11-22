@@ -181,11 +181,11 @@
             ; WRT = off
             .cfg 0x8008, 0n11_1111_1100_1111
 
-            .sfr 0x120, bmRequestType
-            .sfr 0x121, bRequest
-            .sfr 0x122, wValue
-            .sfr 0x124, wIndex
-            .sfr 0x126, wLength
+            .sfr 0x120, setup_bmRequestType
+            .sfr 0x121, setup_bRequest
+            .sfr 0x122, setup_wValue
+            .sfr 0x124, setup_wIndex
+            .sfr 0x126, setup_wLength
 
             .reg 6, newaddr
 
@@ -278,22 +278,6 @@ pllwait:    *btfss OSCSTAT, 6 ; PLLRDY
             movlw 0n00010000
             movwf UEP0
 
-            ;;; Set up BD 0 (EP0 OUT). ;;;
-
-            ; bank 2
-            movlw 0x20
-            movwf BD0ADRH
-            movlw 0xA0
-            movwf BD0ADRL
-
-            ;;; Set up BD 1 (EP0 IN). ;;;
-
-            ; bank 3
-            movlw 0x20
-            movwf BD0ADRH
-            movlw 0xF0
-            movwf BD0ADRL
-
             ;;; Set up other endpoints. ;;;
 
             clrf UEP1
@@ -329,11 +313,12 @@ se0wait:    *btfsc UCON, 5 ; SE0
 
 default:    ; Wait for SETUP token.
 
+            bcf UIR, 3 ; TRNIF
             movlw 0x20
             movwf BD0ADRH
             movlw 0xA0
             movwf BD0ADRL
-            movlw 0x50
+            movlw 16
             movwf BD0CNT
             movlw 0n00001000
             movwf BD0STAT
@@ -344,6 +329,8 @@ default:    ; Wait for SETUP token.
 _d_wait:    *btfss UCON, 4 ; PKTDIS
               *goto _d_wait
 
+            bsf LATC, 2
+
             call control
             movf newaddr, 0
             movlb UADDR
@@ -353,13 +340,12 @@ _d_wait:    *btfss UCON, 4 ; PKTDIS
             *btfsc STATUS, 2 ; Z
               *clrf newaddr
 
+            bcf LATC, 2
+
             ;call control
             ;movlb LATC
             ;btfsc WREG, 0
               ;*bsf LATC, 2
-
-            ;movlw 0n00000100
-            ;xorwf LATC
 
             goto default
 
@@ -373,37 +359,34 @@ control:    ; If request has the wrong length, ignore it.
             movf BD0CNT, 0
             sublw 8
             btfss STATUS, 2 ; Z
-              retlw 0
+              return
 
             ; If request type is Vendor or Reserved, ignore request.
-            btfsc bmRequestType, 6 ; Vendor or Reserved
-              retlw 0
+            btfsc setup_bmRequestType, 6 ; Vendor or Reserved
+              return
 
             ;movlp setup_cls
-            btfsc bmRequestType, 5 ; Class
-              retlw 0
+            btfsc setup_bmRequestType, 5 ; Class
+              return
 
-            movf bRequest, 0
+            movf setup_bRequest, 0
             sublw 5 ; SET_ADDRESS
             movlp set_address
             btfsc STATUS, 2 ; Z
               *goto set_address
 
-            movf bRequest, 0
-            sublw 6 ; GET_DESCRIPTOR
-            movlp get_descriptor
-            btfsc STATUS, 2 ; Z
-              *goto get_descriptor
+            goto get_descriptor
 
-            retlw 0
+            ;movf setup_bRequest, 0
+            ;sublw 6 ; GET_DESCRIPTOR
+            ;movlp get_descriptor
+            ;btfsc STATUS, 2 ; Z
+              ;*goto get_descriptor
+
+            return
 
 
-ctrlnodata: bsf LATC, 2
-            movlw 0x20
-            movwf BD1ADRH
-            movlw 0xF0
-            movwf BD1ADRL
-            movlw 0
+ctrlnodata: movlw 0
             movwf BD1CNT
             movlw 0n01001000
             movwf BD1STAT
@@ -413,7 +396,33 @@ ctrlnodata: bsf LATC, 2
 _cnd_wait:  *btfsc BD1STAT, 7 ; UOWN
               *goto _cnd_wait
 
-            retlw 1
+            return
+
+
+ctrlread:   movlw 0x20
+            movwf BD1ADRH
+            movlw 0xF0
+            movwf BD1ADRL
+            movlw 18
+            movwf BD1CNT
+            movlw 0n01001000
+            movwf BD1STAT
+            bsf BD1STAT, 7 ; UOWN = SIE
+            bcf UCON, 4 ; PKTDIS
+            movlp _cr_wait
+_cr_wait:   *btfsc BD1STAT, 7 ; UOWN
+              *goto _cr_wait
+
+            movlw 0
+            movwf BD0CNT
+            movlw 0n01001000
+            movwf BD0STAT
+            bsf BD0STAT, 7 ; UOWN = SIE
+            movlp _cr_wait2
+_cr_wait2:  *btfsc BD0STAT, 7 ; UOWN
+              *goto _cr_wait2
+
+            return
 
 
             ;;;
@@ -422,7 +431,7 @@ _cnd_wait:  *btfsc BD1STAT, 7 ; UOWN
 
 
 set_address:
-            movf wValue, 0
+            movf setup_wValue, 0
             movwf newaddr
             goto ctrlnodata
 
@@ -433,30 +442,67 @@ set_address:
 
 
 get_descriptor:
-            movlp _gd_eo
-            btfsc bmRequestType, 1
-              *goto _gd_eo
+            ;movlp _gd_eo
+            ;btfsc setup_bmRequestType, 1
+              ;*goto _gd_eo
 
-            movlp _gd_i
-            btfsc bmRequestType, 0
-              *goto _gd_i
+            ;movlp _gd_i
+            ;btfsc setup_bmRequestType, 0
+              ;*goto _gd_i
 
             ;;; Get Device Descriptor ;;;
 
-            retlw 0
+            movlw 18 ; bLength
+            movwf 0x2A0
+            movlw 1 ; bDescriptorType = DEVICE
+            movwf 0x2A1
+            movlw 0x00 ; bcdUSB = 0x0200
+            movwf 0x2A2
+            movlw 0x02 ; same
+            movwf 0x2A3
+            movlw 0xFF ; bDeviceClass = vendor-specific
+            movwf 0x2A4
+            movlw 0x00 ; bDeviceSubClass
+            movwf 0x2A5
+            movlw 0xFF ; bDeviceProtocol = vendor-specific
+            movwf 0x2A6
+            movlw 64 ; bMaxPacketSize0
+            movwf 0x2A7
+            movlw 0xD8 ; idVendor
+            movwf 0x2A8
+            movlw 0x04 ; same
+            movwf 0x2A9
+            movlw 0x00 ; idProduct
+            movwf 0x2AA
+            movlw 0x40 ; same
+            movwf 0x2AB
+            movlw 0x01 ; bcdDevice
+            movwf 0x2AC
+            movlw 0x00 ; same
+            movwf 0x2AD
+            movlw 0x00 ; iManufacturer
+            movwf 0x2AE
+            movlw 0x00 ; iProduct
+            movwf 0x2AF
+            movlw 0x00 ; iSerialNumber
+            movwf 0x2B0
+            movlw 0x00 ; bNumConfigurations
+            movwf 0x2B1
+
+            goto ctrlread
 
 _gd_i:      ;;; Get Interface Descriptor ;;;
 
-            retlw 0
+            return
 
 _gd_eo:     movlp _gd_o
-            btfsc bmRequestType, 0
+            btfsc setup_bmRequestType, 0
               *goto _gd_o
 
             ;;; Get Endpoint Descriptor ;;;
 
-            retlw 0
+            return
 
 _gd_o:      ;;; Get Other Descriptor (?) ;;;
 
-            retlw 0
+            return
