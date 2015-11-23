@@ -181,19 +181,29 @@
             ; WRT = off
             .cfg 0x8008, 0n11_1111_1100_1111
 
-            .sfr 0x120, setup_bmRequestType
-            .sfr 0x121, setup_bRequest
-            .sfr 0x122, setup_wValue0
-            .sfr 0x123, setup_wValue1
-            .sfr 0x124, setup_wIndex0
-            .sfr 0x125, setup_wIndex1
-            .sfr 0x126, setup_wLength0
-            .sfr 0x127, setup_wLength1
+            .sfr 0x120, req_bmRequestType
+            .sfr 0x121, req_bRequest
+            .sfr 0x122, req_wValue0
+            .sfr 0x123, req_wValue1
+            .sfr 0x124, req_wIndex0
+            .sfr 0x125, req_wIndex1
+            .sfr 0x126, req_wLength0
+            .sfr 0x127, req_wLength1
 
-            .reg 6, newaddr
-            .reg 6, trncounter
+            ; 0 = powered
+            ; 1 = default
+            ; 2 = address
+            ; 3 = configured
+            .reg 6, usbstate
+
+            ; 0 = waiting
+            ; 2 = out
+            ; 3 = in
+            .reg 6, ep0state
+
+            .reg 6, ep0len
+
             .reg 6, copylen
-            .reg 6, stall
 
 
             ;;;
@@ -201,38 +211,191 @@
             ;;;
 
 
-reset:      ; (state = ?)
-            goto start
+powered:    goto start
 a0002:      nop
 a0003:      nop
 
 int:        btfss PIR2, 2 ; USBIF
               retfie
             btfsc UIR, 0 ; URSTIF
-              *bra usbreset ; (Interrupts are disabled.)
+              *bra intreset
+            btfsc UIR, 3 ; TRNIF
+              *bra inttrans
             retfie
 
-usbreset:   ; Clear *all* interrupt flags.
-            clrf UIR
+
+intreset:   bcf UIR, 0 ; URSTIF
             bcf PIR2, 2 ; USBIF
 
-            ; Reinitialize stack.
             movlw 0x1F
-            movwf STKPTR ; (Interrupts are disabled.)
+            movwf STKPTR
 
-            ; Reenable interrupts.
+            bra default
+
+
+inttrans:   bcf UIR, 3 ; TRNIF
+            bcf PIR2, 2 ; USBIF
+
+            btfsc UCON, 4 ; PKTDIS
+              *bra ctrlsetup
+            btfsc ep0state, 1 ; out or in
+              *bra ctrl
+
+            bra freeze ; Implement me!
+
+
+stall:      bra freeze ; Implement me!
+
+
+ctrl:       btfsc USTAT, 2 ; DIR
+              *bra ctrlin
+
+ctrlout:    btfsc ep0state, 0 ; in
+              *bra ctrldone
+
+            ; ep0len -= BD0CNT
+            movf BD0CNT, 0
+            subwf ep0len
+            btfsc STATUS, 2 ; Z
+              *bra ctrlzero
+
+            ; BD0ADR[H:L] += BD0CNT
+            movf BD0CNT, 0
+            addwf BD0ADRL
+            movlw 0
+            addwfc BD0ADRH
+
+            ; BD0CNT = min(ep0len, 64)
+            movf ep0len, 0
+            andlw 0n11000000
+            btfss STATUS, 2 ; Z
+              movlw 64
+            movwf BD0CNT
+
+            movlw 0n11001000
+            andwf BD0STAT
+
+
+ctrlin:     btfss ep0state, 0 ; out
+              *bra ctrldone
+
+            ; ep0len -= BD1CNT
+            movf BD1CNT, 0
+            subwf ep0len
+            btfsc STATUS, 2 ; Z
+              *bra ctrlzero
+
+            ; BD1ADR[H:L] += BD1CNT
+            movf BD1CNT, 0
+            addwf BD1ADRL
+            movlw 0
+            addwfc BD1ADRH
+
+            ; BD1CNT = min(ep0len, 64)
+            movf ep0len, 0
+            andlw 0n11000000
+            btfss STATUS, 2 ; Z
+              movlw 64
+            movwf BD1CNT
+
+            movlw 0n11001000
+            andwf BD1STAT
+
+
+ctrldone:   clrf ep0state
+            retfie
+
+
+ctrlsetup:  btfsc req_bmRequestType, 6 ; vendor or reserved
+              *bra stall
+            btfsc req_bmRequestType, 5 ; class
+              *bra stall
+
+            bsf LATC, 2
+
+            movf req_bRequest, 0
+            ; 0 = GET_STATUS
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 1 = CLEAR_FEATURE
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 2 = reserved
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 3 = SET_ADDRESS
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 4 = reserved
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 5 = SET_ADDRESS
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 6 = GET_DESCRIPTOR
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 7 = SET_DESCRIPTOR
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 8 = GET_CONFIGURATION
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 9 = SET_CONFIGURATION
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 10 = GET_INTERFACE
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 11 = SET_INTERFACE
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 12 = SYNCH_FRAME
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            bra stall
+
+
+default:    call init
+
+            ; DTSEN = on
+            movlw 0n00001000
+            movwf BD0STAT
+            movlw 0x20
+            movwf BD0ADRH
+            movlw 0xA0
+            movwf BD0ADRL
+            movlw 64
+            movwf BD0CNT
+            bsf BD0STAT, 7 ; UOWN = SIE
+
             bsf INTCON, 7 ; GIE
 
-            goto control
+            goto freeze ; (Interrupts are enabled.)
+
+
+init:       clrf ep0state ; waiting
+            return
 
 
             ;;;
-            ;;; main program
+            ;;; Initialize.
             ;;;
 
 
-start:
-            ;;; Set up clock. ;;;
+start:      ;;; Set up clock. ;;;
 
             ; SPLLEN = X, SPLLMULT = 3x, IRCF = 16 MHz, SCS = config
             movlw 0n01111100
@@ -269,383 +432,49 @@ start:
             movlw 0n11000011
             movwf ANSELC
 
-            ;;; Initialize GP registers. ;;;
-
-            clrf newaddr
-
             ;;; Wait for clock to stabilize. ;;;
 
             movlb OSCSTAT
-hfwait:     *btfss OSCSTAT, 0 ; HFIOFS
-              *bra hfwait ; (Interrupts are disabled.)
+_hfwait:    *btfss OSCSTAT, 0 ; HFIOFS
+              *bra _hfwait ; (Interrupts are disabled.)
 
             movlb OSCSTAT
-pllwait:    *btfss OSCSTAT, 6 ; PLLRDY
-              *bra pllwait ; (Interrupts are disabled.)
+_pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
+              *bra _pllwait ; (Interrupts are disabled.)
 
             ;;; Set up USB module. ;;;
 
-            ; UTEYE = off, UPUEN = on, FSEN = full-speed, PPB = off
+            clrf usbstate ; powered
+            call init
+
+            ; UPUEN = on, FSEN = on
             movlw 0n00010100
             movwf UCFG
 
-            ; SOFIE = off, STALLIE = off, IDLEIE = on, TRNIE = off,
-            ; ACTVIE = off, UERRIE = off, URSTIE = off
-            movlw 0n00010000
-            movwf UIE
-
-            ;;; Set up endpoint 0. ;;;
-
-            ; EPHSHK = on, EPCONDIS = on, EPOUTEN = off, EPINEN = off,
-            ; EPSTALL = off
-            movlw 0n00010000
+            ; EPHSHK = on, EPOUTEN = on, EPINEN = on
+            movlw 0n00010110
             movwf UEP0
 
-            ;;; Set up other endpoints. ;;;
+            clrf BD0STAT
+            clrf BD1STAT
+            clrf BD2STAT
+            clrf BD3STAT
+            clrf BD4STAT
+            clrf BD5STAT
+            clrf BD6STAT
+            clrf BD7STAT
 
-            clrf UEP1
-            clrf UEP2
-            clrf UEP3
-            clrf UEP4
-            clrf UEP5
-            clrf UEP6
-            clrf UEP7
+            ; TRNIE = on, URSTIE = on
+            movlw 0n00001001
+            movwf UIE
 
-            ;;; Enable USB module. ;;;
+            bsf PIE2, 2 ; USBIE = on
+            bsf INTCON, 6 ; PEIE = on
 
-            bsf UCON, 3 ; USBEN = on
-
-            ;;; Wait for USB reset. ;;;
-
-            movlb UIR
-rstwait:    *btfss UIR, 0 ; URSTIF
-              *bra rstwait ; (Interrupts are disabled.)
-            bcf UIR, 0 ; URSTIF
-
-            movlb UCON
-            movlp se0wait
-se0wait:    *btfsc UCON, 5 ; SE0
-              *goto se0wait
-
-            ;;; Enable endpoint 0. ;;;
-
-            bsf UEP0, 2 ; EPOUTEN
-            bsf UEP0, 1 ; EPINEN
-
-            ;;; Enable interrupts. ;;;
-
-            movlw 6
-            movwf trncounter
-
-            clrf stall
-
-            bsf UIE, 0 ; URSTIE
-            bsf INTCON, 7 ; GIE
-
-
-            ;;;
-            ;;; Handle control requests.
-            ;;;
-
-
-control:    movlw 0x20
-            movwf BD0ADRH
-            movlw 0xA0
-            movwf BD0ADRL
-            movlw 64
-            movwf BD0CNT
-            movlw 0n00001000
-            movwf BD0STAT
-            bsf BD0STAT, 7 ; UOWN = SIE
-
-ctrlwait:   ;;; setup phase ;;;
-
-            ;;; Receive request. ;;;
-
-            movlb UCON
-            movlp _c_wait
-_c_wait:    *btfss UCON, 4 ; PKTDIS
-              *goto _c_wait
-
-            ;decf trncounter
-            ;movlp debug
-            ;btfsc STATUS, 2 ; Z
-              ;*goto debug
-
-            ;;; Validate request. ;;;
-
-            ; If request has the wrong length, ignore it.
-            movf BD0CNT, 0
-            sublw 8
-            movlp control
-            btfss STATUS, 2 ; Z
-              *goto control
-            ; If request type is Vendor or Reserved, ignore request.
-            btfsc setup_bmRequestType, 6 ; Vendor or Reserved
-              *goto control
-            btfsc setup_bmRequestType, 5 ; Class
-              *goto control
-
-            ;;; Handle request. ;;;
-
-            movf setup_bRequest, 0
-            sublw 5 ; SET_ADDRESS
-            movlp set_address
-            btfsc STATUS, 2 ; Z
-              *goto set_address
-
-            movf setup_bRequest, 0
-            sublw 6 ; GET_DESCRIPTOR
-            movlp get_descriptor
-            btfsc STATUS, 2 ; Z
-              *goto get_descriptor
-
-setup_done: movf newaddr, 0
-            movlb UADDR
-            *btfss STATUS, 2 ; Z
-              *movwf UADDR
-            clrf newaddr
-
-            goto control
-
-
-debug:      movf setup_bRequest, 0
-            call print
-            movf setup_wValue1, 0
-            call print
-            goto freeze
-
-
-            ;;;
-            ;;; no-data control request
-            ;;;
-
-
-ctrlnodata: ;;; status stage ;;;
-
-            clrf BD1CNT
-            movlw 0n01001000
-            movwf BD1STAT
-
-            bsf BD1STAT, 7 ; UOWN = SIE
-            bcf UCON, 4 ; PKTDIS
-
-            movlb BD1STAT
-            movlp _cnd_wait
-_cnd_wait:  *btfsc BD1STAT, 7 ; UOWN
-              *goto _cnd_wait
-
-            movlb UIR
-            movlp _cnd_wait2
-_cnd_wait2: *btfss UIR, 3 ; TRNIF
-              *goto _cnd_wait2
-            bcf UIR, 3 ; TRNIF
-
-            goto setup_done
-
-
-            ;;;
-            ;;; control read request
-            ;;;
-
-
-ctrlread:   ;;; data stage ;;;
-
-            movlw 0x20
-            movwf FSR1H
-            movlw 0xF0
-            movwf FSR1L
-            movf setup_wLength0, 0
-            call copy
-
-            movlw 0x20
-            movwf BD1ADRH
-            movlw 0xF0
-            movwf BD1ADRL
-            movf setup_wLength0, 0
-            movwf BD1CNT
-            movlw 0n01001000
-            movwf BD1STAT
-
-            bsf BD1STAT, 7 ; UOWN = SIE
-            bcf UCON, 4 ; PKTDIS
-
-            movlb BD1STAT
-            movlp _cr_wait1
-_cr_wait1:  *btfsc BD1STAT, 7 ; UOWN
-              *goto _cr_wait1
-
-            movlb UIR
-            movlp _cr_wait2
-_cr_wait2:  *btfss UIR, 3 ; TRNIF
-              *goto _cr_wait2
-            bcf UIR, 3 ; TRNIF
-
-            ;;; status stage ;;;
-
-            movlw 0x20
-            movwf BD0ADRH
-            movlw 0xA0
-            movwf BD0ADRL
-            movlw 64
-            movwf BD0CNT
-            movlw 0n01001000
-            movwf BD0STAT
-
-            bsf BD0STAT, 7 ; UOWN = SIE
-
-            movlb BD0STAT
-            movlp _cr_wait3
-_cr_wait3:  *btfsc BD0STAT, 7 ; UOWN
-              *goto _cr_wait3
-
-            movlb UIR
-            movlp _cr_wait4
-_cr_wait4:  *btfss UIR, 3 ; TRNIF
-              *goto _cr_wait4
-            bcf UIR, 3 ; TRNIF
-
-            goto setup_done
-
-
-            ;;;
-            ;;; control request error
-            ;;;
-
-
-ctrlerr:    ;;; data stage ;;;
-
-            bsf BD0STAT, 2 ; BSTALL
-            bsf BD1STAT, 2 ; BSTALL
-
-            bsf BD0STAT, 7 ; UOWN = SIE
-            bsf BD1STAT, 7 ; UOWN = SIE
-            bcf UCON, 4 ; PKTDIS
-
-            bsf LATC, 2
+            bsf INTCON, 7 ; GIE = on
 
             goto freeze
 
-            ;movlw 0x20
-            ;movwf BD1ADRH
-            ;movlw 0xF0
-            ;movwf BD1ADRL
-            ;movlw 10
-            ;movwf BD1CNT
-            ;movlw 0n01001000
-            ;movwf BD1STAT
-
-            ;bsf BD1STAT, 7 ; UOWN = SIE
-            ;bcf UCON, 4 ; PKTDIS
-
-            ;movlb BD1STAT
-            ;movlp _ce_wait1
-;_ce_wait1:  *btfsc BD1STAT, 7 ; UOWN
-              ;*goto _ce_wait1
-
-            ;movlb UIR
-            ;movlp _ce_wait2
-;_ce_wait2:  *btfss UIR, 3 ; TRNIF
-              ;*goto _ce_wait2
-            ;bcf UIR, 3 ; TRNIF
-
-            ;;; status stage ;;;
-
-            ;movlw 0x20
-            ;movwf BD0ADRH
-            ;movlw 0xA0
-            ;movwf BD0ADRL
-            ;movlw 64
-            ;movwf BD0CNT
-            ;movlw 0n01001100
-            ;movwf BD0STAT
-
-            ;bsf BD0STAT, 7 ; UOWN = SIE
-
-            goto control
-
-
-            ;;;
-            ;;; SET ADDRESS
-            ;;;
-
-
-set_address:
-            movf setup_wValue0, 0
-            movwf newaddr
-            goto ctrlnodata
-
-
-            ;;;
-            ;;; GET DESCRIPTOR
-            ;;;
-
-
-get_descriptor:
-            movf setup_wValue1, 0
-
-            decf WREG
-            movlp _gd_d
-            btfsc STATUS, 2 ; Z
-              *goto _gd_d
-
-            decf WREG
-            movlp _gd_c
-            btfsc STATUS, 2 ; Z
-              *goto _gd_c
-
-            decf WREG
-            movlp _gd_s
-            btfsc STATUS, 2 ; Z
-              *goto _gd_s
-
-            decf WREG
-            movlp _gd_i
-            btfsc STATUS, 2 ; Z
-              *goto _gd_i
-
-            decf WREG
-            movlp _gd_e
-            btfsc STATUS, 2 ; Z
-              *goto _gd_e
-
-            decf WREG
-            movlp _gd_q
-            btfsc STATUS, 2 ; Z
-              *goto _gd_q
-
-            decf WREG
-            movlp _gd_o
-            btfsc STATUS, 2 ; Z
-              *goto _gd_o
-
-            decf WREG
-            movlp _gd_p
-            btfsc STATUS, 2 ; Z
-              *goto _gd_p
-
-            goto setup_done
-
-_gd_d:      movphw device_descriptor
-            movwf FSR0H
-            movplw device_descriptor
-            movwf FSR0L
-            goto ctrlread
-
-_gd_c:      movphw config0_descriptor
-            movwf FSR0H
-            movplw config0_descriptor
-            movwf FSR0L
-            goto ctrlread
-
-_gd_s:      goto setup_done
-_gd_i:      goto setup_done
-_gd_e:      goto setup_done
-
-_gd_q:      goto ctrlerr
-
-_gd_o:      goto setup_done
-_gd_p:      goto setup_done
 
             ;;;
             ;;; utilities
@@ -653,55 +482,11 @@ _gd_p:      goto setup_done
 
 
 copy:       movwf copylen
-            movlp _c_lp
-_c_lp:      moviw FSR0++
+            movlp _copy
+_copy:      moviw FSR0++
             movwi FSR1++
             *decfsz copylen
-              *goto _c_lp
-
-            return
-
-
-print:      movwf 0x7E
-            movlw 0n10101010
-            movwf 0x7F
-
-            movlb LATC
-
-            movlw 16
-            movwf 0x7D
-
-_p_loop:    lslf 0x7E
-            rlf 0x7F
-
-            btfsc STATUS, 0 ; C
-              *bsf LATC, 2
-            btfss STATUS, 0 ; C
-              *bcf LATC, 2
-
-            movlw 0x0A
-            movwf 0x72
-
-            movlw 0xFF
-            movwf 0x71
-            movwf 0x70
-
-_p_dly:     movlp _p_dly
-            decfsz 0x70
-              *goto _p_dly
-            movlp _p_dly
-            decfsz 0x71
-              *goto _p_dly
-            movlp _p_dly
-            decfsz 0x72
-              *goto _p_dly
-
-            movlp _p_loop
-            decfsz 0x7D
-              *goto _p_loop
-
-            bcf LATC, 2
-
+              *goto _copy
             return
 
 
