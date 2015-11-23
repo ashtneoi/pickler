@@ -413,6 +413,12 @@ control:    ; If request has the wrong length, ignore it.
             btfsc STATUS, 2 ; Z
               *goto get_descriptor
 
+            movf setup_bRequest, 0
+            sublw 8 ; GET_CONFIGURATION
+            movlp get_configuration
+            btfsc STATUS, 2 ; Z
+              *goto get_configuration
+
             return
 
 
@@ -439,6 +445,13 @@ _cnd_wait2: *btfss UIR, 3 ; TRNIF
 
 
 ctrlread:   movlw 0x20
+            movwf FSR1H
+            movlw 0xF0
+            movwf FSR1L
+            movf setup_wLength0, 0
+            call copy
+
+            movlw 0x20
             movwf BD1ADRH
             movlw 0xF0
             movwf BD1ADRL
@@ -517,12 +530,6 @@ get_descriptor:
             movwf FSR0H
             movplw device_descriptor
             movwf FSR0L
-            movlw 0x20
-            movwf FSR1H
-            movlw 0xF0
-            movwf FSR1L
-            movf setup_wLength0, 0
-            call copy
 
             goto ctrlread
 
@@ -540,6 +547,10 @@ _gd_eo:     movlp _gd_o
 
 _gd_o:      ;;; Get Other Descriptor (?) ;;;
 
+            return
+
+
+get_configuration:
             return
 
 
@@ -623,4 +634,4 @@ device_descriptor:
             movlw 0x00 ; iManufacturer
             movlw 0x00 ; iProduct
             movlw 0x00 ; iSerialNumber
-            movlw 0x00 ; bNumConfigurations
+            movlw 0x01 ; bNumConfigurations
