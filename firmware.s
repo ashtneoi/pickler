@@ -426,8 +426,7 @@ debug:      movf setup_bRequest, 0
 
 ctrlnodata: ;;; status stage ;;;
 
-            movlw 0
-            movwf BD1CNT
+            clrf BD1CNT
             movlw 0n01001000
             movwf BD1STAT
 
@@ -634,7 +633,7 @@ _gd_s:      goto setup_done
 _gd_i:      goto setup_done
 _gd_e:      goto setup_done
 
-_gd_q:      goto ctrlerr
+_gd_q:      goto _gd_d
 
 _gd_o:      goto setup_done
 _gd_p:      goto setup_done
