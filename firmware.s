@@ -193,6 +193,7 @@
             .reg 6, newaddr
             .reg 6, trncounter
             .reg 6, copylen
+            .reg 6, stall
 
 
             ;;;
@@ -218,6 +219,9 @@ usbreset:   ; Clear *all* interrupt flags.
             ; Reinitialize stack.
             movlw 0x1F
             movwf STKPTR ; (Interrupts are disabled.)
+
+            ; Reenable interrupts.
+            bsf INTCON, 7 ; GIE
 
             goto default
 
@@ -338,6 +342,8 @@ se0wait:    *btfsc UCON, 5 ; SE0
 
             ;;; Handle setup transfers. ;;;
 
+            clrf stall
+
 default:    ; Wait for SETUP token.
 
             movlw 0x20
@@ -347,6 +353,8 @@ default:    ; Wait for SETUP token.
             movlw 64
             movwf BD0CNT
             movlw 0n00001000
+            btfsc stall, 0
+              iorlw 0n00000100
             movwf BD0STAT
             bsf BD0STAT, 7 ; UOWN = SIE
 
@@ -354,6 +362,8 @@ default:    ; Wait for SETUP token.
             movlp _d_wait
 _d_wait:    *btfss UCON, 4 ; PKTDIS
               *goto _d_wait
+
+            bcf BD0STAT, 2 ; BSTALL = off
 
             ;decf trncounter
             ;movlp debug
@@ -413,11 +423,11 @@ control:    ; If request has the wrong length, ignore it.
             btfsc STATUS, 2 ; Z
               *goto get_descriptor
 
-            movf setup_bRequest, 0
-            sublw 8 ; GET_CONFIGURATION
-            movlp get_configuration
-            btfsc STATUS, 2 ; Z
-              *goto get_configuration
+            ;movf setup_bRequest, 0
+            ;sublw 8 ; GET_CONFIGURATION
+            ;movlp get_configuration
+            ;btfsc STATUS, 2 ; Z
+              ;*goto get_configuration
 
             return
 
@@ -516,42 +526,75 @@ set_address:
 
 
 get_descriptor:
-            ;movlp _gd_eo
-            ;btfsc setup_bmRequestType, 1
-              ;*goto _gd_eo
+            movf setup_wValue1, 0
 
-            ;movlp _gd_i
-            ;btfsc setup_bmRequestType, 0
-              ;*goto _gd_i
+            decf WREG
+            movlp _gd_d
+            btfsc STATUS, 2 ; Z
+              *goto _gd_d
 
-            ;;; Get Device Descriptor ;;;
+            decf WREG
+            movlp _gd_c
+            btfsc STATUS, 2 ; Z
+              *goto _gd_c
 
-            movphw device_descriptor
+            decf WREG
+            movlp _gd_s
+            btfsc STATUS, 2 ; Z
+              *goto _gd_s
+
+            decf WREG
+            movlp _gd_i
+            btfsc STATUS, 2 ; Z
+              *goto _gd_i
+
+            decf WREG
+            movlp _gd_e
+            btfsc STATUS, 2 ; Z
+              *goto _gd_e
+
+            decf WREG
+            movlp _gd_q
+            btfsc STATUS, 2 ; Z
+              *goto _gd_q
+
+            decf WREG
+            movlp _gd_o
+            btfsc STATUS, 2 ; Z
+              *goto _gd_o
+
+            decf WREG
+            movlp _gd_p
+            btfsc STATUS, 2 ; Z
+              *goto _gd_p
+
+            return
+
+_gd_d:      movphw device_descriptor
             movwf FSR0H
             movplw device_descriptor
             movwf FSR0L
-
             goto ctrlread
 
-_gd_i:      ;;; Get Interface Descriptor ;;;
+_gd_c:      movphw config0_descriptor
+            movwf FSR0H
+            movplw config0_descriptor
+            movwf FSR0L
+            goto ctrlread
 
+_gd_s:      return
+_gd_i:      return
+_gd_e:      return
+
+_gd_q:      bsf stall, 0
             return
 
-_gd_eo:     movlp _gd_o
-            btfsc setup_bmRequestType, 0
-              *goto _gd_o
+_gd_o:      return
+_gd_p:      return
 
-            ;;; Get Endpoint Descriptor ;;;
-
-            return
-
-_gd_o:      ;;; Get Other Descriptor (?) ;;;
-
-            return
-
-
-get_configuration:
-            return
+            ;;;
+            ;;; utilities
+            ;;;
 
 
 copy:       movwf copylen
@@ -635,3 +678,15 @@ device_descriptor:
             movlw 0x00 ; iProduct
             movlw 0x00 ; iSerialNumber
             movlw 0x01 ; bNumConfigurations
+
+
+config0_descriptor:
+            movlw 9 ; bLength
+            movlw 2 ; bDescriptorType = CONFIGURATION
+            movlw 9 ; wTotalLength = 9
+            movlw 0 ; same
+            movlw 0 ; bNumInterfaces
+            movlw 0 ; bConfigurationValue
+            movlw 0 ; iConfiguration
+            movlw 0n1000000 ; bmAttributes
+            movlw 20 ; bMaxPower = 20 * 2 mA
