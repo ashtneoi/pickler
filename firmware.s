@@ -367,8 +367,6 @@ ctrlwait:   ;;; setup phase ;;;
 _c_wait:    *btfss UCON, 4 ; PKTDIS
               *goto _c_wait
 
-            bcf BD0STAT, 2 ; BSTALL = off
-
             ;decf trncounter
             ;movlp debug
             ;btfsc STATUS, 2 ; Z
@@ -379,15 +377,14 @@ _c_wait:    *btfss UCON, 4 ; PKTDIS
             ; If request has the wrong length, ignore it.
             movf BD0CNT, 0
             sublw 8
+            movlp control
             btfss STATUS, 2 ; Z
-              return
-
+              *goto control
             ; If request type is Vendor or Reserved, ignore request.
             btfsc setup_bmRequestType, 6 ; Vendor or Reserved
-              return
-
+              *goto control
             btfsc setup_bmRequestType, 5 ; Class
-              return
+              *goto control
 
             ;;; Handle request. ;;;
 
@@ -518,42 +515,54 @@ _cr_wait4:  *btfss UIR, 3 ; TRNIF
 
 ctrlerr:    ;;; data stage ;;;
 
-            movlw 0x20
-            movwf BD1ADRH
-            movlw 0xF0
-            movwf BD1ADRL
-            clrf BD1CNT
-            movlw 0n01001000
-            movwf BD1STAT
+            bsf BD0STAT, 2 ; BSTALL
+            bsf BD1STAT, 2 ; BSTALL
 
+            bsf BD0STAT, 7 ; UOWN = SIE
             bsf BD1STAT, 7 ; UOWN = SIE
             bcf UCON, 4 ; PKTDIS
 
-            movlb BD1STAT
-            movlp _ce_wait1
-_ce_wait1:  *btfsc BD1STAT, 7 ; UOWN
-              *goto _ce_wait1
+            bsf LATC, 2
 
-            movlb UIR
-            movlp _ce_wait2
-_ce_wait2:  *btfss UIR, 3 ; TRNIF
-              *goto _ce_wait2
-            bcf UIR, 3 ; TRNIF
+            goto freeze
+
+            ;movlw 0x20
+            ;movwf BD1ADRH
+            ;movlw 0xF0
+            ;movwf BD1ADRL
+            ;movlw 10
+            ;movwf BD1CNT
+            ;movlw 0n01001000
+            ;movwf BD1STAT
+
+            ;bsf BD1STAT, 7 ; UOWN = SIE
+            ;bcf UCON, 4 ; PKTDIS
+
+            ;movlb BD1STAT
+            ;movlp _ce_wait1
+;_ce_wait1:  *btfsc BD1STAT, 7 ; UOWN
+              ;*goto _ce_wait1
+
+            ;movlb UIR
+            ;movlp _ce_wait2
+;_ce_wait2:  *btfss UIR, 3 ; TRNIF
+              ;*goto _ce_wait2
+            ;bcf UIR, 3 ; TRNIF
 
             ;;; status stage ;;;
 
-            movlw 0x20
-            movwf BD0ADRH
-            movlw 0xA0
-            movwf BD0ADRL
-            movlw 64
-            movwf BD0CNT
-            movlw 0n01001100
-            movwf BD0STAT
+            ;movlw 0x20
+            ;movwf BD0ADRH
+            ;movlw 0xA0
+            ;movwf BD0ADRL
+            ;movlw 64
+            ;movwf BD0CNT
+            ;movlw 0n01001100
+            ;movwf BD0STAT
 
-            bsf BD0STAT, 7 ; UOWN = SIE
+            ;bsf BD0STAT, 7 ; UOWN = SIE
 
-            goto ctrlwait
+            goto control
 
 
             ;;;
@@ -633,7 +642,7 @@ _gd_s:      goto setup_done
 _gd_i:      goto setup_done
 _gd_e:      goto setup_done
 
-_gd_q:      goto _gd_d
+_gd_q:      goto ctrlerr
 
 _gd_o:      goto setup_done
 _gd_p:      goto setup_done
@@ -694,7 +703,6 @@ _p_dly:     movlp _p_dly
             bcf LATC, 2
 
             return
-
 
 
 freeze:     goto freeze
