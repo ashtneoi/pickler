@@ -334,7 +334,7 @@ se0wait:    *btfsc UCON, 5 ; SE0
 
             ;;; Enable interrupts. ;;;
 
-            movlw 2
+            movlw 6
             movwf trncounter
 
             bsf UIE, 0 ; URSTIE
@@ -353,8 +353,8 @@ default:    ; Wait for SETUP token.
             movlw 64
             movwf BD0CNT
             movlw 0n00001000
-            btfsc stall, 0
-              iorlw 0n00000100
+            ;btfsc stall, 0
+              ;iorlw 0n00000100
             movwf BD0STAT
             bsf BD0STAT, 7 ; UOWN = SIE
 
@@ -365,10 +365,10 @@ _d_wait:    *btfss UCON, 4 ; PKTDIS
 
             bcf BD0STAT, 2 ; BSTALL = off
 
-            ;decf trncounter
-            ;movlp debug
-            ;btfsc STATUS, 2 ; Z
-              ;*goto debug
+            decf trncounter
+            movlp debug
+            btfsc STATUS, 2 ; Z
+              *goto debug
 
             call control
             movf newaddr, 0
@@ -387,7 +387,7 @@ _d_wait:    *btfss UCON, 4 ; PKTDIS
 
 debug:      movf setup_bRequest, 0
             call print
-            movf setup_wLength0, 0
+            movf setup_wValue1, 0
             call print
             goto freeze
 
@@ -587,6 +587,17 @@ _gd_i:      return
 _gd_e:      return
 
 _gd_q:      bsf stall, 0
+
+            movlw 0n01001100 ; including BSTALL = on
+            movwf BD1STAT
+            bsf BD1STAT, 7 ; UOWN
+            bcf UCON, 4 ; PKTDIS
+
+            movlb BD1STAT
+            movlp _gd_q_wait
+_gd_q_wait: *btfsc BD1STAT, 7 ; UOWN
+              *goto _gd_q_wait
+
             return
 
 _gd_o:      return
@@ -688,5 +699,5 @@ config0_descriptor:
             movlw 0 ; bNumInterfaces
             movlw 0 ; bConfigurationValue
             movlw 0 ; iConfiguration
-            movlw 0n1000000 ; bmAttributes
+            movlw 0n10000000 ; bmAttributes
             movlw 20 ; bMaxPower = 20 * 2 mA
