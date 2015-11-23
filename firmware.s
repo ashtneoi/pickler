@@ -223,7 +223,7 @@ usbreset:   ; Clear *all* interrupt flags.
             ; Reenable interrupts.
             bsf INTCON, 7 ; GIE
 
-            goto default
+            goto control
 
 
             ;;;
@@ -337,67 +337,46 @@ se0wait:    *btfsc UCON, 5 ; SE0
             movlw 6
             movwf trncounter
 
+            clrf stall
+
             bsf UIE, 0 ; URSTIE
             bsf INTCON, 7 ; GIE
 
-            ;;; Handle setup transfers. ;;;
 
-            clrf stall
+            ;;;
+            ;;; Handle control requests.
+            ;;;
 
-default:    ; Wait for SETUP token.
 
-            movlw 0x20
+control:    movlw 0x20
             movwf BD0ADRH
             movlw 0xA0
             movwf BD0ADRL
             movlw 64
             movwf BD0CNT
             movlw 0n00001000
-            ;btfsc stall, 0
-              ;iorlw 0n00000100
             movwf BD0STAT
             bsf BD0STAT, 7 ; UOWN = SIE
 
+ctrlwait:   ;;; setup phase ;;;
+
+            ;;; Receive request. ;;;
+
             movlb UCON
-            movlp _d_wait
-_d_wait:    *btfss UCON, 4 ; PKTDIS
-              *goto _d_wait
+            movlp _c_wait
+_c_wait:    *btfss UCON, 4 ; PKTDIS
+              *goto _c_wait
 
             bcf BD0STAT, 2 ; BSTALL = off
 
-            decf trncounter
-            movlp debug
-            btfsc STATUS, 2 ; Z
-              *goto debug
+            ;decf trncounter
+            ;movlp debug
+            ;btfsc STATUS, 2 ; Z
+              ;*goto debug
 
-            call control
-            movf newaddr, 0
-            movlb UADDR
-            *btfss STATUS, 2 ; Z
-              *movwf UADDR
-            clrf newaddr
+            ;;; Validate request. ;;;
 
-            ;call control
-            ;movlb LATC
-            ;btfsc WREG, 0
-              ;*bsf LATC, 2
-
-            goto default
-
-
-debug:      movf setup_bRequest, 0
-            call print
-            movf setup_wValue1, 0
-            call print
-            goto freeze
-
-
-            ;;;
-            ;;; control transfer, setup stage, SETUP transaction
-            ;;;
-
-
-control:    ; If request has the wrong length, ignore it.
+            ; If request has the wrong length, ignore it.
             movf BD0CNT, 0
             sublw 8
             btfss STATUS, 2 ; Z
@@ -407,9 +386,10 @@ control:    ; If request has the wrong length, ignore it.
             btfsc setup_bmRequestType, 6 ; Vendor or Reserved
               return
 
-            ;movlp setup_cls
             btfsc setup_bmRequestType, 5 ; Class
               return
+
+            ;;; Handle request. ;;;
 
             movf setup_bRequest, 0
             sublw 5 ; SET_ADDRESS
@@ -423,16 +403,30 @@ control:    ; If request has the wrong length, ignore it.
             btfsc STATUS, 2 ; Z
               *goto get_descriptor
 
-            ;movf setup_bRequest, 0
-            ;sublw 8 ; GET_CONFIGURATION
-            ;movlp get_configuration
-            ;btfsc STATUS, 2 ; Z
-              ;*goto get_configuration
+setup_done: movf newaddr, 0
+            movlb UADDR
+            *btfss STATUS, 2 ; Z
+              *movwf UADDR
+            clrf newaddr
 
-            return
+            goto control
 
 
-ctrlnodata: movlw 0
+debug:      movf setup_bRequest, 0
+            call print
+            movf setup_wValue1, 0
+            call print
+            goto freeze
+
+
+            ;;;
+            ;;; no-data control request
+            ;;;
+
+
+ctrlnodata: ;;; status stage ;;;
+
+            movlw 0
             movwf BD1CNT
             movlw 0n01001000
             movwf BD1STAT
@@ -449,12 +443,19 @@ _cnd_wait:  *btfsc BD1STAT, 7 ; UOWN
             movlp _cnd_wait2
 _cnd_wait2: *btfss UIR, 3 ; TRNIF
               *goto _cnd_wait2
-            bcf UIR, 3
+            bcf UIR, 3 ; TRNIF
 
-            return
+            goto setup_done
 
 
-ctrlread:   movlw 0x20
+            ;;;
+            ;;; control read request
+            ;;;
+
+
+ctrlread:   ;;; data stage ;;;
+
+            movlw 0x20
             movwf FSR1H
             movlw 0xF0
             movwf FSR1L
@@ -482,7 +483,9 @@ _cr_wait1:  *btfsc BD1STAT, 7 ; UOWN
             movlp _cr_wait2
 _cr_wait2:  *btfss UIR, 3 ; TRNIF
               *goto _cr_wait2
-            bcf UIR, 3
+            bcf UIR, 3 ; TRNIF
+
+            ;;; status stage ;;;
 
             movlw 0x20
             movwf BD0ADRH
@@ -504,9 +507,54 @@ _cr_wait3:  *btfsc BD0STAT, 7 ; UOWN
             movlp _cr_wait4
 _cr_wait4:  *btfss UIR, 3 ; TRNIF
               *goto _cr_wait4
-            bcf UIR, 3
+            bcf UIR, 3 ; TRNIF
 
-            return
+            goto setup_done
+
+
+            ;;;
+            ;;; control request error
+            ;;;
+
+
+ctrlerr:    ;;; data stage ;;;
+
+            movlw 0x20
+            movwf BD1ADRH
+            movlw 0xF0
+            movwf BD1ADRL
+            clrf BD1CNT
+            movlw 0n01001000
+            movwf BD1STAT
+
+            bsf BD1STAT, 7 ; UOWN = SIE
+            bcf UCON, 4 ; PKTDIS
+
+            movlb BD1STAT
+            movlp _ce_wait1
+_ce_wait1:  *btfsc BD1STAT, 7 ; UOWN
+              *goto _ce_wait1
+
+            movlb UIR
+            movlp _ce_wait2
+_ce_wait2:  *btfss UIR, 3 ; TRNIF
+              *goto _ce_wait2
+            bcf UIR, 3 ; TRNIF
+
+            ;;; status stage ;;;
+
+            movlw 0x20
+            movwf BD0ADRH
+            movlw 0xA0
+            movwf BD0ADRL
+            movlw 64
+            movwf BD0CNT
+            movlw 0n01001100
+            movwf BD0STAT
+
+            bsf BD0STAT, 7 ; UOWN = SIE
+
+            goto ctrlwait
 
 
             ;;;
@@ -568,7 +616,7 @@ get_descriptor:
             btfsc STATUS, 2 ; Z
               *goto _gd_p
 
-            return
+            goto setup_done
 
 _gd_d:      movphw device_descriptor
             movwf FSR0H
@@ -582,26 +630,14 @@ _gd_c:      movphw config0_descriptor
             movwf FSR0L
             goto ctrlread
 
-_gd_s:      return
-_gd_i:      return
-_gd_e:      return
+_gd_s:      goto setup_done
+_gd_i:      goto setup_done
+_gd_e:      goto setup_done
 
-_gd_q:      bsf stall, 0
+_gd_q:      goto ctrlerr
 
-            movlw 0n01001100 ; including BSTALL = on
-            movwf BD1STAT
-            bsf BD1STAT, 7 ; UOWN
-            bcf UCON, 4 ; PKTDIS
-
-            movlb BD1STAT
-            movlp _gd_q_wait
-_gd_q_wait: *btfsc BD1STAT, 7 ; UOWN
-              *goto _gd_q_wait
-
-            return
-
-_gd_o:      return
-_gd_p:      return
+_gd_o:      goto setup_done
+_gd_p:      goto setup_done
 
             ;;;
             ;;; utilities
