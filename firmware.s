@@ -205,7 +205,21 @@ reset:      ; (state = ?)
 a0002:      nop
 a0003:      nop
 
-int:        retfie
+int:        btfss PIR2, 2 ; USBIF
+              retfie
+            btfsc UIR, 0 ; URSTIF
+              *bra usbreset ; (Interrupts are disabled.)
+            retfie
+
+usbreset:   ; Clear *all* interrupt flags.
+            clrf UIR
+            bcf PIR2, 2 ; USBIF
+
+            ; Reinitialize stack.
+            movlw 0x1F
+            movwf STKPTR ; (Interrupts are disabled.)
+
+            goto default
 
 
             ;;;
@@ -314,10 +328,15 @@ se0wait:    *btfsc UCON, 5 ; SE0
             bsf UEP0, 2 ; EPOUTEN
             bsf UEP0, 1 ; EPINEN
 
-            ;;; Handle setup transfers. ;;;
+            ;;; Enable interrupts. ;;;
 
             movlw 2
             movwf trncounter
+
+            bsf UIE, 0 ; URSTIE
+            bsf INTCON, 7 ; GIE
+
+            ;;; Handle setup transfers. ;;;
 
 default:    ; Wait for SETUP token.
 
@@ -325,7 +344,7 @@ default:    ; Wait for SETUP token.
             movwf BD0ADRH
             movlw 0xA0
             movwf BD0ADRL
-            movlw 16
+            movlw 64
             movwf BD0CNT
             movlw 0n00001000
             movwf BD0STAT
@@ -423,7 +442,7 @@ ctrlread:   movlw 0x20
             movwf BD1ADRH
             movlw 0xF0
             movwf BD1ADRL
-            movlw 8
+            movf setup_wLength0, 0
             movwf BD1CNT
             movlw 0n01001000
             movwf BD1STAT
@@ -457,10 +476,6 @@ _cr_wait2:  *btfss UIR, 3 ; TRNIF
             movlp _cr_wait3
 _cr_wait3:  *btfsc BD0STAT, 7 ; UOWN
               *goto _cr_wait3
-
-            movf BD0CNT, 0
-            call print
-            goto freeze
 
             movlb UIR
             movlp _cr_wait4
@@ -506,7 +521,7 @@ get_descriptor:
             movwf FSR1H
             movlw 0xF0
             movwf FSR1L
-            movlw 8
+            movf setup_wLength0, 0
             call copy
 
             goto ctrlread
@@ -591,7 +606,7 @@ freeze:     goto freeze
 
 
 device_descriptor:
-            movlw 8 ; bLength
+            movlw 18 ; bLength
             movlw 1 ; bDescriptorType = DEVICE
             movlw 0x00 ; bcdUSB = 0x0200
             movlw 0x02 ; same
