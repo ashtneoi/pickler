@@ -291,7 +291,7 @@ _ctrlout:   ; BD0CNT = min(ep0len, 64)
               movlw 64
             movwf BD0CNT
 
-            ; Arm OUT 0.
+            ; Arm endpoint.
             bsf BD0STAT, 7 ; UOWN
             retfie
 
@@ -329,7 +329,7 @@ _ctrlin:    ; BD1CNT = min(ep0len, 64)
               movlw 64
             movwf BD1CNT
 
-            ; Arm IN 0.
+            ; Arm endpoint.
             bsf BD1STAT, 7 ; UOWN
             retfie
 
@@ -400,8 +400,7 @@ ctrlsetup:  btfsc req_bmRequestType, 6 ; vendor or reserved
             bra stall
 
 
-ctrlwait:   ; ep0state = waiting
-            clrf ep0state
+ctrlwait:   clrf ep0state ; = waiting
 
             ; Set up OUT 0.
             movlw 0n00001000 ; DTSEN = on
@@ -417,7 +416,8 @@ ctrlwait:   ; ep0state = waiting
             retfie
 
 
-init:       clrf ep0state ; waiting
+init:       clrf ep0state ; = waiting
+
             return
 
 
@@ -475,7 +475,7 @@ _pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
 
             ;;; Set up USB module. ;;;
 
-            clrf usbstate ; powered
+            clrf usbstate ; = powered
             call init
 
             ; UPUEN = on, FSEN = on
