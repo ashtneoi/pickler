@@ -205,6 +205,8 @@
 
             .reg 6, copylen
 
+            .reg 6, newaddr
+
 
             ;;;
             ;;; interrupt vectors
@@ -278,13 +280,15 @@ ctrlout:    ; If in write mode...
             movlw 0
             addwfc BD0ADRH
 
-            ; Set up BD0STAT.
-            movlw 0n01001000
-            andwf BD0STAT
+            ; Flip DTS.
             movlw 0n01000000 ; DTS mask
             xorwf BD0STAT
 
-_ctrlout:   ; BD0CNT = min(ep0len, 64)
+_ctrlout:   ; Clear other bits.
+            movlw 0n01001000
+            andwf BD0STAT
+
+            ; BD0CNT = min(ep0len, 64)
             movf ep0len, 0
             andlw 0n11000000
             btfss STATUS, 2 ; Z
@@ -316,13 +320,15 @@ ctrlin:     ; If in read mode...
             movlw 0
             addwfc BD1ADRH
 
-            ; Set up BD1STAT.
-            movlw 0n01001000
-            andwf BD1STAT
+            ; Flip DTS.
             movlw 0n01000000 ; DTS mask
             xorwf BD1STAT
 
-_ctrlin:    ; BD1CNT = min(ep0len, 64)
+_ctrlin:    ; Clear other bits.
+            movlw 0n01001000
+            andwf BD1STAT
+
+            ; BD1CNT = min(ep0len, 64)
             movf ep0len, 0
             andlw 0n11000000
             btfss STATUS, 2 ; Z
@@ -338,10 +344,16 @@ ctrlinst:   bsf BD1STAT, 6 ; DTS = 1
             bra _ctrlin
 
 
-ctrlsetup:  btfsc req_bmRequestType, 6 ; vendor or reserved
+ctrlsetup:  bcf UCON, 4 ; PKTDIS
+
+            btfsc req_bmRequestType, 6 ; vendor or reserved
               *bra stall
             btfsc req_bmRequestType, 5 ; class
               *bra stall
+            movlw 2 ; read
+            btfsc req_bmRequestType, 7 ; control read
+              movlw 3 ; write
+            movwf ep0state
 
             bsf LATC, 2
 
@@ -368,7 +380,7 @@ ctrlsetup:  btfsc req_bmRequestType, 6 ; vendor or reserved
             decf WREG
             ; 5 = SET_ADDRESS
             btfsc STATUS, 2 ; Z
-              *bra stall
+              *bra ctrl_set_address
             decf WREG
             ; 6 = GET_DESCRIPTOR
             btfsc STATUS, 2 ; Z
@@ -398,6 +410,15 @@ ctrlsetup:  btfsc req_bmRequestType, 6 ; vendor or reserved
             btfsc STATUS, 2 ; Z
               *bra stall
             bra stall
+
+
+ctrl_set_address:
+            movf req_wValue0, 0
+            movwf newaddr
+
+            clrf BD1CNT
+
+            bra ctrlinst
 
 
 ctrlwait:   clrf ep0state ; = waiting
