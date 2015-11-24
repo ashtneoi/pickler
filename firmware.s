@@ -197,8 +197,8 @@
             .reg 6, usbstate
 
             ; 0 = waiting
-            ; 2 = out
-            ; 3 = in
+            ; 2 = read
+            ; 3 = write
             .reg 6, ep0state
 
             .reg 6, ep0len
@@ -211,7 +211,7 @@
             ;;;
 
 
-powered:    goto start
+reset:      goto start
 a0002:      nop
 a0003:      nop
 
@@ -224,40 +224,53 @@ int:        btfss PIR2, 2 ; USBIF
             retfie
 
 
-intreset:   bcf UIR, 0 ; URSTIF
+intreset:   ; Clear all USB interrupt flags.
+            clrf UIR
             bcf PIR2, 2 ; USBIF
 
+            ; Reinitialize call stack.
             movlw 0x1F
             movwf STKPTR
 
-            bra default
+            ; Do other initialization.
+            call init
+
+            ; Start.
+            call ctrlwait ; (Kind of hacky.)
+            goto freeze
 
 
-inttrans:   bcf UIR, 3 ; TRNIF
+inttrans:   ; Clear interrupt flags.
+            bcf UIR, 3 ; TRNIF
             bcf PIR2, 2 ; USBIF
 
+            ; If transaction is SETUP...
             btfsc UCON, 4 ; PKTDIS
               *bra ctrlsetup
-            btfsc ep0state, 1 ; out or in
+
+            ; If in read or write mode...
+            btfsc ep0state, 1
               *bra ctrl
 
-            bra freeze ; Implement me!
+            retfie ; Is this to spec?
 
 
 stall:      bra freeze ; Implement me!
 
 
-ctrl:       btfsc USTAT, 2 ; DIR
+ctrl:       ; If transaction is IN...
+            btfsc USTAT, 2 ; DIR
               *bra ctrlin
 
-ctrlout:    btfsc ep0state, 0 ; in
-              *bra ctrldone
+ctrlout:    ; If in write mode...
+            btfsc ep0state, 0
+              *bra ctrlwait
 
             ; ep0len -= BD0CNT
             movf BD0CNT, 0
             subwf ep0len
             btfsc STATUS, 2 ; Z
-              *bra ctrlzero
+              *bra ctrlinst
 
             ; BD0ADR[H:L] += BD0CNT
             movf BD0CNT, 0
@@ -265,25 +278,37 @@ ctrlout:    btfsc ep0state, 0 ; in
             movlw 0
             addwfc BD0ADRH
 
-            ; BD0CNT = min(ep0len, 64)
+            ; Set up BD0STAT.
+            movlw 0n01001000
+            andwf BD0STAT
+            movlw 0n01000000 ; DTS mask
+            xorwf BD0STAT
+
+_ctrlout:   ; BD0CNT = min(ep0len, 64)
             movf ep0len, 0
             andlw 0n11000000
             btfss STATUS, 2 ; Z
               movlw 64
             movwf BD0CNT
 
-            movlw 0n11001000
-            andwf BD0STAT
+            ; Arm OUT 0.
+            bsf BD0STAT, 7 ; UOWN
+            retfie
 
 
-ctrlin:     btfss ep0state, 0 ; out
-              *bra ctrldone
+ctrloutst:  bsf BD0STAT, 6 ; DTS = 1
+            bra _ctrlout
+
+
+ctrlin:     ; If in read mode...
+            btfss ep0state, 0
+              *bra ctrlwait
 
             ; ep0len -= BD1CNT
             movf BD1CNT, 0
             subwf ep0len
             btfsc STATUS, 2 ; Z
-              *bra ctrlzero
+              *bra ctrloutst
 
             ; BD1ADR[H:L] += BD1CNT
             movf BD1CNT, 0
@@ -291,19 +316,26 @@ ctrlin:     btfss ep0state, 0 ; out
             movlw 0
             addwfc BD1ADRH
 
-            ; BD1CNT = min(ep0len, 64)
+            ; Set up BD1STAT.
+            movlw 0n01001000
+            andwf BD1STAT
+            movlw 0n01000000 ; DTS mask
+            xorwf BD1STAT
+
+_ctrlin:    ; BD1CNT = min(ep0len, 64)
             movf ep0len, 0
             andlw 0n11000000
             btfss STATUS, 2 ; Z
               movlw 64
             movwf BD1CNT
 
-            movlw 0n11001000
-            andwf BD1STAT
-
-
-ctrldone:   clrf ep0state
+            ; Arm IN 0.
+            bsf BD1STAT, 7 ; UOWN
             retfie
+
+
+ctrlinst:   bsf BD1STAT, 6 ; DTS = 1
+            bra _ctrlin
 
 
 ctrlsetup:  btfsc req_bmRequestType, 6 ; vendor or reserved
@@ -368,10 +400,11 @@ ctrlsetup:  btfsc req_bmRequestType, 6 ; vendor or reserved
             bra stall
 
 
-default:    call init
+ctrlwait:   ; ep0state = waiting
+            clrf ep0state
 
-            ; DTSEN = on
-            movlw 0n00001000
+            ; Set up OUT 0.
+            movlw 0n00001000 ; DTSEN = on
             movwf BD0STAT
             movlw 0x20
             movwf BD0ADRH
@@ -381,9 +414,7 @@ default:    call init
             movwf BD0CNT
             bsf BD0STAT, 7 ; UOWN = SIE
 
-            bsf INTCON, 7 ; GIE
-
-            goto freeze ; (Interrupts are enabled.)
+            retfie
 
 
 init:       clrf ep0state ; waiting
