@@ -205,7 +205,8 @@
 
             .reg 6, copylen
 
-            .reg 6, newaddr
+            ; [0] = SET ADDRESS
+            .reg 6, ep0post
 
 
             ;;;
@@ -355,8 +356,6 @@ ctrlsetup:  bcf UCON, 4 ; PKTDIS
               movlw 3 ; write
             movwf ep0state
 
-            bsf LATC, 2
-
             movf req_bRequest, 0
             ; 0 = GET_STATUS
             btfsc STATUS, 2 ; Z
@@ -413,8 +412,7 @@ ctrlsetup:  bcf UCON, 4 ; PKTDIS
 
 
 ctrl_set_address:
-            movf req_wValue0, 0
-            movwf newaddr
+            bsf ep0post, 0 ; SET_ADDRESS
 
             clrf BD1CNT
 
@@ -423,22 +421,32 @@ ctrl_set_address:
 
 ctrlwait:   clrf ep0state ; = waiting
 
-            ; Set up OUT 0.
+            btfss ep0post, 0 ; SET_ADDRESS
+              *bra _cw
+            bcf ep0post, 0 ; SET_ADDRESS
+            movf req_wValue0, 0
+            movwf UADDR
+_cw:        ; Set up OUT 0.
             movlw 0n00001000 ; DTSEN = on
             movwf BD0STAT
+
+            ; address = 0x20A0 linear (0x120 trad)
             movlw 0x20
             movwf BD0ADRH
             movlw 0xA0
             movwf BD0ADRL
+
             movlw 64
             movwf BD0CNT
+
+            ; Arm endpoint.
             bsf BD0STAT, 7 ; UOWN = SIE
 
             retfie
 
 
 init:       clrf ep0state ; = waiting
-
+            clrf ep0post
             return
 
 
@@ -524,6 +532,8 @@ _pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
             bsf INTCON, 6 ; PEIE = on
 
             bsf INTCON, 7 ; GIE = on
+
+            bsf UCON, 3 ; USBEN = on
 
             goto freeze
 
