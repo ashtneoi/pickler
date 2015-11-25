@@ -247,8 +247,6 @@ inttrans:   ; Clear interrupt flags.
             bcf UIR, 3 ; TRNIF
             bcf PIR2, 2 ; USBIF
 
-            bsf LATC, 2
-
             ; If transaction is SETUP...
             btfsc UCON, 4 ; PKTDIS
               *bra ctrlsetup
@@ -385,7 +383,7 @@ ctrlsetup:  bcf UCON, 4 ; PKTDIS
             decf WREG
             ; 6 = GET_DESCRIPTOR
             btfsc STATUS, 2 ; Z
-              *bra stall
+              *bra ctrl_get_descriptor
             decf WREG
             ; 7 = SET_DESCRIPTOR
             btfsc STATUS, 2 ; Z
@@ -419,6 +417,70 @@ ctrl_set_address:
             clrf ep0len
 
             bra ctrlinst
+
+
+ctrl_get_descriptor:
+            movf req_wValue1, 0 ; descriptor type
+
+            decf WREG
+            ; 1 = DEVICE
+            btfsc STATUS, 2 ; Z
+              *bra ctrl_gd_device
+            decf WREG
+            ; 2 = CONFIGURATION
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 3 = STRING
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 4 = INTERFACE
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 5 = ENDPOINT
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 6 = DEVICE_QUALIFIER
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 7 = OTHER_SPEED_CONFIGURATION
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            decf WREG
+            ; 8 = INTERFACE_POWER
+            btfsc STATUS, 2 ; Z
+              *bra stall
+            bra stall
+
+_ctrl_gd:   movlw 0x20
+            movwf FSR1H
+            movwf BD1ADRH
+            movlw 0xF0
+            movwf FSR1L
+            movwf BD1ADRL
+
+            movf req_wLength0, 0
+            movwf ep0len
+            call copy
+
+            bsf BD1STAT, 6 ; DTS = 1
+
+            bra _ctrlin
+
+
+ctrl_gd_device:
+            movphw device_descriptor
+            movwf FSR0H
+            movplw device_descriptor
+            movwf FSR0L
+
+            bsf LATC, 2
+
+            bra _ctrl_gd
 
 
 ctrlwait:   clrf ep0state ; = waiting
