@@ -247,6 +247,8 @@ inttrans:   ; Clear interrupt flags.
             bcf UIR, 3 ; TRNIF
             bcf PIR2, 2 ; USBIF
 
+            bsf LATC, 2
+
             ; If transaction is SETUP...
             btfsc UCON, 4 ; PKTDIS
               *bra ctrlsetup
@@ -414,7 +416,7 @@ ctrlsetup:  bcf UCON, 4 ; PKTDIS
 ctrl_set_address:
             bsf ep0post, 0 ; SET_ADDRESS
 
-            clrf BD1CNT
+            clrf ep0len
 
             bra ctrlinst
 
