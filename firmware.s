@@ -265,8 +265,8 @@ ctrl:       ; If transaction is IN...
             btfsc USTAT, 2 ; DIR
               *bra ctrlin
 
-ctrlout:    ; If in write mode...
-            btfsc ep0state, 0
+ctrlout:    ; If in read mode...
+            btfss ep0state, 0
               *bra ctrlwait
 
             ; ep0len -= BD0CNT
@@ -297,7 +297,7 @@ _ctrlout:   ; Clear other bits.
             movwf BD0CNT
 
             ; Arm endpoint.
-            bsf BD0STAT, 7 ; UOWN
+            bsf BD0STAT, 7 ; UOWN = SIE
             retfie
 
 
@@ -305,8 +305,8 @@ ctrloutst:  bsf BD0STAT, 6 ; DTS = 1
             bra _ctrlout
 
 
-ctrlin:     ; If in read mode...
-            btfss ep0state, 0
+ctrlin:     ; If in write mode...
+            btfsc ep0state, 0
               *bra ctrlwait
 
             ; ep0len -= BD1CNT
@@ -337,7 +337,7 @@ _ctrlin:    ; Clear other bits.
             movwf BD1CNT
 
             ; Arm endpoint.
-            bsf BD1STAT, 7 ; UOWN
+            bsf BD1STAT, 7 ; UOWN = SIE
             retfie
 
 
@@ -351,9 +351,9 @@ ctrlsetup:  bcf UCON, 4 ; PKTDIS
               *bra stall
             btfsc req_bmRequestType, 5 ; class
               *bra stall
-            movlw 2 ; read
-            btfsc req_bmRequestType, 7 ; control read
-              movlw 3 ; write
+            movlw 3 ; write
+            btfsc req_bmRequestType, 7
+              movlw 2 ; read
             movwf ep0state
 
             movf req_bRequest, 0
@@ -369,7 +369,7 @@ ctrlsetup:  bcf UCON, 4 ; PKTDIS
             btfsc STATUS, 2 ; Z
               *bra stall
             decf WREG
-            ; 3 = SET_ADDRESS
+            ; 3 = SET_FEATURE
             btfsc STATUS, 2 ; Z
               *bra stall
             decf WREG
@@ -477,8 +477,6 @@ ctrl_gd_device:
             movwf FSR0H
             movplw device_descriptor
             movwf FSR0L
-
-            bsf LATC, 2
 
             bra _ctrl_gd
 
@@ -625,33 +623,33 @@ freeze:     goto freeze
 
 
 device_descriptor:
-            movlw 18 ; bLength
-            movlw 1 ; bDescriptorType = DEVICE
-            movlw 0x00 ; bcdUSB = 0x0200
-            movlw 0x02 ; same
-            movlw 0xFF ; bDeviceClass = vendor-specific
-            movlw 0x00 ; bDeviceSubClass
-            movlw 0xFF ; bDeviceProtocol = vendor-specific
-            movlw 64 ; bMaxPacketSize0
-            movlw 0xD8 ; idVendor
-            movlw 0x04 ; same
-            movlw 0x00 ; idProduct
-            movlw 0x40 ; same
-            movlw 0x01 ; bcdDevice
-            movlw 0x00 ; same
-            movlw 0x00 ; iManufacturer
-            movlw 0x00 ; iProduct
-            movlw 0x00 ; iSerialNumber
-            movlw 0x01 ; bNumConfigurations
+            retlw 18 ; bLength
+            retlw 1 ; bDescriptorType = DEVICE
+            retlw 0x00 ; bcdUSB = 0x0200
+            retlw 0x02 ; same
+            retlw 0xFF ; bDeviceClass = vendor-specific
+            retlw 0x00 ; bDeviceSubClass
+            retlw 0xFF ; bDeviceProtocol = vendor-specific
+            retlw 64 ; bMaxPacketSize0
+            retlw 0xD8 ; idVendor
+            retlw 0x04 ; same
+            retlw 0x00 ; idProduct
+            retlw 0x40 ; same
+            retlw 0x01 ; bcdDevice
+            retlw 0x00 ; same
+            retlw 0x00 ; iManufacturer
+            retlw 0x00 ; iProduct
+            retlw 0x00 ; iSerialNumber
+            retlw 0x01 ; bNumConfigurations
 
 
 config0_descriptor:
-            movlw 9 ; bLength
-            movlw 2 ; bDescriptorType = CONFIGURATION
-            movlw 9 ; wTotalLength = 9
-            movlw 0 ; same
-            movlw 0 ; bNumInterfaces
-            movlw 0 ; bConfigurationValue
-            movlw 0 ; iConfiguration
-            movlw 0n10000000 ; bmAttributes
-            movlw 20 ; bMaxPower = 20 * 2 mA
+            retlw 9 ; bLength
+            retlw 2 ; bDescriptorType = CONFIGURATION
+            retlw 9 ; wTotalLength = 9
+            retlw 0 ; same
+            retlw 0 ; bNumInterfaces
+            retlw 0 ; bConfigurationValue
+            retlw 0 ; iConfiguration
+            retlw 0n10000000 ; bmAttributes
+            retlw 20 ; bMaxPower = 20 * 2 mA
