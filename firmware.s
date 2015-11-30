@@ -269,6 +269,8 @@ ctrlout:    ; If in read mode...
             btfss ep0state, 0
               *bra ctrlwait
 
+            bcf LATC, 2 ; !!!debug!!!
+
             ; ep0len -= BD0CNT
             movf BD0CNT, 0
             subwf ep0len
@@ -463,11 +465,17 @@ _ctrl_gd:   movlw 0x20
             movwf FSR1L
             movwf BD1ADRL
 
-            movf req_wLength0, 0
+            movf INDF0, 0 ; actual length
+            subwf req_wLength0, 0 ; W = requested length - actual length
+            movf req_wLength0, 0 ; requested length
+            btfsc STATUS, 0 ; If ~B (C)...
+              movf INDF0, 0 ; actual length
             movwf ep0len
             call copy
 
             bsf BD1STAT, 6 ; DTS = 1
+
+            bsf LATC, 2 ; !!!debug!!!
 
             bra _ctrlin
 
@@ -477,7 +485,6 @@ ctrl_gd_device:
             movwf FSR0H
             movplw device_descriptor
             movwf FSR0L
-
             bra _ctrl_gd
 
 
