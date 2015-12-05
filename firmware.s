@@ -243,29 +243,30 @@ intreset:   ; Clear all USB interrupt flags.
             goto freeze
 
 
-inttrans:   ; Clear interrupt flags.
-            bcf UIR, 3 ; TRNIF
-            bcf PIR2, 2 ; USBIF
+inttrans:   ; If transaction is IN...
+            btfsc USTAT, 2 ; DIR
+              *bra ctrlin
 
+            movf BD0STAT, 0
+            andlw 0n00111100
+            sublw 0n00110100
             ; If transaction is SETUP...
-            btfsc UCON, 4 ; PKTDIS
+            btfsc STATUS, 2 ; Z
               *bra ctrlsetup
-
-            ; If in read or write mode...
-            btfsc ep0state, 1
-              *bra ctrl
-
-            retfie ; Is this to spec?
+            ; Otherwise, transaction is OUT.
+            *bra ctrlout
 
 
 stall:      bra freeze ; Implement me!
 
 
-ctrl:       ; If transaction is IN...
-            btfsc USTAT, 2 ; DIR
-              *bra ctrlin
+ctrlout:    
+            ; !!! debug !!!
+            movf BD0CNT, 0
+            call uart_send
+            ; !!! debug !!!
 
-ctrlout:    ; If in read mode...
+            ; If in read mode...
             btfss ep0state, 0
               *bra ctrlwait
 
@@ -298,6 +299,10 @@ _ctrlout:   ; Clear other bits.
 
             ; Arm endpoint.
             bsf BD0STAT, 7 ; UOWN = SIE
+            ; Clear interrupt flags.
+            bcf UIR, 3 ; TRNIF
+            bcf PIR2, 2 ; USBIF
+
             retfie
 
 
@@ -305,7 +310,13 @@ ctrloutst:  bsf BD0STAT, 6 ; DTS = 1
             bra _ctrlout
 
 
-ctrlin:     ; If in write mode...
+ctrlin:     
+            ; !!! debug !!!
+            movf BD1CNT, 0
+            call uart_send
+            ; !!! debug !!!
+
+            ; If in write mode...
             btfsc ep0state, 0
               *bra ctrlwait
 
@@ -334,10 +345,15 @@ _ctrlin:    ; Clear other bits.
             andlw 0n11000000
             btfss STATUS, 2 ; Z
               movlw 64
+            movf ep0len, 0
             movwf BD1CNT
 
             ; Arm endpoint.
             bsf BD1STAT, 7 ; UOWN = SIE
+            ; Clear interrupt flags.
+            bcf UIR, 3 ; TRNIF
+            bcf PIR2, 2 ; USBIF
+
             retfie
 
 
@@ -345,7 +361,13 @@ ctrlinst:   bsf BD1STAT, 6 ; DTS = 1
             bra _ctrlin
 
 
-ctrlsetup:  bcf UCON, 4 ; PKTDIS
+ctrlsetup:  
+            ; !!! debug !!!
+            movf BD0CNT, 0
+            call uart_send
+            ; !!! debug !!!
+
+            bcf UCON, 4 ; PKTDIS
 
             btfsc req_bmRequestType, 6 ; vendor or reserved
               *bra stall
@@ -506,6 +528,9 @@ _cw:        ; Set up OUT 0.
 
             ; Arm endpoint.
             bsf BD0STAT, 7 ; UOWN = SIE
+            ; Clear interrupt flags.
+            bcf UIR, 3 ; TRNIF
+            bcf PIR2, 2 ; USBIF
 
             retfie
 
@@ -545,7 +570,8 @@ start:      ;;; Set up clock. ;;;
             ;      (RX) RC5: in (digital)
 
             clrf LATA
-            clrf LATC
+            movlw 0n00001000
+            movwf LATC
 
             movlw 0n11001111
             movwf TRISA
@@ -589,13 +615,10 @@ _pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
 
             ;;; Send initial debug byte. ;;;
 
-            bsf LATC, 3
-
             call delayx
 
             movlw 0x00
             call uart_send
-            bsf LATC, 2 ; !!!debug!!!
 
             ;;; Set up USB module. ;;;
 
