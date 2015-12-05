@@ -249,7 +249,26 @@ intreset:   ; Clear all USB interrupt flags.
             goto freeze
 
 
-inttrans:   ; If transaction is IN...
+inttrans:   lslf USTAT, 0
+            swapf WREG
+            andlw 0x07
+
+            btfsc STATUS, 2 ; Z
+              *bra ep0
+            decf WREG
+            btfsc STATUS, 2 ; Z
+              *bra ep1
+            bra stall
+
+
+ep1:        ; Clear interrupt flags.
+            bcf UIR, 3 ; TRNIF
+            bcf PIR2, 2 ; USBIF
+
+            retfie
+
+
+ep0:        ; If transaction is IN...
             btfsc USTAT, 2 ; DIR
               *bra ctrlin
 
@@ -495,6 +514,13 @@ _ctrl_gd:   movlw 0x20
             btfsc STATUS, 0 ; If ~B (C)...
               movf INDF0, 0 ; actual length
             movwf ep0len
+
+            movlw 1
+            addwf FSR0L
+            movlw 0
+            addwfc FSR0H
+
+            movf ep0len, 0
             call copy
 
             bsf BD1STAT, 6 ; DTS = 1
@@ -527,6 +553,28 @@ ctrl_set_configuration:
             movlw 3 ; = configured
             movwf usbstate
 
+            movlw 0n00011110
+            movwf UEP1
+
+            movlw 0n00001000
+            movwf BD2STAT
+            movwf BD3STAT
+
+            movlw 0x21
+            movwf BD2ADRH
+            movlw 0x40
+            movwf BD2ADRL
+            movlw 64
+            movwf BD2CNT
+
+            movlw 0x21
+            movwf BD3ADRH
+            movlw 0x90
+            movwf BD3ADRL
+            clrf BD3CNT
+
+            bsf BD2STAT, 7 ; UOWN = SIE
+
             bra ctrlinst
 
 
@@ -556,7 +604,8 @@ _ctrlwait:  ; address = 0x20A0 linear (0x120 trad)
             retfie
 
 
-init:       clrf ep0state ; = waiting
+init:       clrf UEP1
+            clrf ep0state ; = waiting
             clrf ep0post
             return
 
@@ -719,6 +768,8 @@ freeze:     goto freeze
 
 
 device_descriptor:
+            retlw 18 ; data length
+
             retlw 18 ; bLength
             retlw 1 ; bDescriptorType = DEVICE
             retlw 0x00 ; bcdUSB = 0x0200
@@ -740,12 +791,40 @@ device_descriptor:
 
 
 config0_descriptor:
+            retlw 32 ; data length
+
             retlw 9 ; bLength
             retlw 2 ; bDescriptorType = CONFIGURATION
-            retlw 9 ; wTotalLength = 9
+            retlw 32 ; wTotalLength
             retlw 0 ; same
-            retlw 0 ; bNumInterfaces
-            retlw 0 ; bConfigurationValue
+            retlw 1 ; bNumInterfaces
+            retlw 1 ; bConfigurationValue
             retlw 0 ; iConfiguration
             retlw 0n10000000 ; bmAttributes
             retlw 20 ; bMaxPower = 20 * 2 mA
+
+            retlw 9 ; bLength
+            retlw 4 ; bDescriptorType = INTERFACE
+            retlw 0 ; bInterfaceNumber
+            retlw 0 ; bAlternateSetting
+            retlw 2 ; bNumEndpoints
+            retlw 0xFF ; bInterfaceClass = vendor-specific
+            retlw 0 ; bInterfaceSubClass
+            retlw 0 ; bInterfaceProtocol
+            retlw 0 ; iInterface
+
+            retlw 7 ; bLength
+            retlw 5 ; bDescriptorType
+            retlw 0x01 ; bEndpointAddress = 1 OUT
+            retlw 0n00000010 ; bmAttributes = bulk
+            retlw 0 ; wMaxPacketSize = 64
+            retlw 64 ; same
+            retlw 0 ; bInterval = never NAKs
+
+            retlw 7 ; bLength
+            retlw 5 ; bDescriptorType
+            retlw 0x81 ; bEndpointAddress = 1 IN
+            retlw 0n00000010 ; bmAttributes = bulk
+            retlw 0 ; wMaxPacketSize = 64
+            retlw 64 ; same
+            retlw 0 ; bInterval = never NAKs
