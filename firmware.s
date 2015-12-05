@@ -243,7 +243,10 @@ intreset:   ; Clear all USB interrupt flags.
             goto freeze
 
 
-inttrans:   ; If transaction is IN...
+inttrans:   
+            bcf LATC, 2 ; !!! debug !!!
+
+            ; If transaction is IN...
             btfsc USTAT, 2 ; DIR
               *bra ctrlin
 
@@ -345,7 +348,8 @@ _ctrlin:    ; Clear other bits.
             andlw 0n11000000
             btfss STATUS, 2 ; Z
               movlw 64
-            movf ep0len, 0
+            btfsc STATUS, 2 ; Z
+              movf ep0len, 0
             movwf BD1CNT
 
             ; Arm endpoint.
@@ -442,6 +446,11 @@ ctrl_set_address:
 
 
 ctrl_get_descriptor:
+            ; !!! debug !!!
+            movf req_wValue1, 0
+            call uart_send
+            ; !!! debug !!!
+
             movf req_wValue1, 0 ; descriptor type
 
             decf WREG
@@ -451,7 +460,7 @@ ctrl_get_descriptor:
             decf WREG
             ; 2 = CONFIGURATION
             btfsc STATUS, 2 ; Z
-              *bra stall
+              *bra ctrl_gd_config
             decf WREG
             ; 3 = STRING
             btfsc STATUS, 2 ; Z
@@ -467,7 +476,7 @@ ctrl_get_descriptor:
             decf WREG
             ; 6 = DEVICE_QUALIFIER
             btfsc STATUS, 2 ; Z
-              *bra stall
+              *bra ctrl_gd_devqual
             decf WREG
             ; 7 = OTHER_SPEED_CONFIGURATION
             btfsc STATUS, 2 ; Z
@@ -493,6 +502,9 @@ _ctrl_gd:   movlw 0x20
             movwf ep0len
             call copy
 
+            movf ep0len, 0
+            call uart_send
+
             bsf BD1STAT, 6 ; DTS = 1
 
             bra _ctrlin
@@ -504,6 +516,18 @@ ctrl_gd_device:
             movplw device_descriptor
             movwf FSR0L
             bra _ctrl_gd
+
+
+ctrl_gd_config:
+            movphw config0_descriptor
+            movwf FSR0H
+            movplw config0_descriptor
+            movwf FSR0L
+            bra _ctrl_gd
+
+
+ctrl_gd_devqual:
+            bra ctrlwait
 
 
 ctrlwait:   clrf ep0state ; = waiting
@@ -531,6 +555,8 @@ _cw:        ; Set up OUT 0.
             ; Clear interrupt flags.
             bcf UIR, 3 ; TRNIF
             bcf PIR2, 2 ; USBIF
+
+            bsf LATC, 2 ; !!! debug !!!
 
             retfie
 
