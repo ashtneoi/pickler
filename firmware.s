@@ -364,7 +364,9 @@ ctrlinst:   bsf BD1STAT, 6 ; DTS = 1
             bra _ctrlin
 
 
-ctrlsetup:  bcf BD1STAT, 7 ; UOWN = firmware
+ctrlsetup:  ; BD1 might still be stalled.
+            bcf BD1STAT, 7 ; UOWN = firmware
+
             bcf UCON, 4 ; PKTDIS
 
             ; Clear interrupt flags.
