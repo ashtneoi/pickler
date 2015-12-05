@@ -224,6 +224,12 @@ int:        btfss PIR2, 2 ; USBIF
               *bra intreset
             btfsc UIR, 3 ; TRNIF
               *bra inttrans
+            btfsc UIR, 5 ; STALLIF
+              *bra stalled
+            retfie
+
+
+stalled:    bsf LATC, 2
             retfie
 
 
@@ -243,10 +249,7 @@ intreset:   ; Clear all USB interrupt flags.
             goto freeze
 
 
-inttrans:   
-            bcf LATC, 2 ; !!! debug !!!
-
-            ; If transaction is IN...
+inttrans:   ; If transaction is IN...
             btfsc USTAT, 2 ; DIR
               *bra ctrlin
 
@@ -260,7 +263,13 @@ inttrans:
             *bra ctrlout
 
 
-stall:      bra freeze ; Implement me!
+stall:      movlw 0n00001100
+            movwf BD0STAT
+            movwf BD1STAT
+            bsf BD1STAT, 7 ; UOWN = SIE
+            bra _ctrlwait
+
+;stall:      bra freeze
 
 
 ctrlout:    ; Clear interrupt flags.
@@ -355,7 +364,8 @@ ctrlinst:   bsf BD1STAT, 6 ; DTS = 1
             bra _ctrlin
 
 
-ctrlsetup:  bcf UCON, 4 ; PKTDIS
+ctrlsetup:  bcf BD1STAT, 7 ; UOWN = firmware
+            bcf UCON, 4 ; PKTDIS
 
             ; Clear interrupt flags.
             bcf UIR, 3 ; TRNIF
@@ -507,7 +517,8 @@ ctrl_gd_config:
 
 
 ctrl_gd_devqual:
-            bra ctrlwait
+            ;bsf LATC, 2
+            bra stall
 
 
 ctrlwait:   clrf ep0state ; = waiting
@@ -521,7 +532,7 @@ _cw:        ; Set up OUT 0.
             movlw 0n00001000 ; DTSEN = on
             movwf BD0STAT
 
-            ; address = 0x20A0 linear (0x120 trad)
+_ctrlwait:  ; address = 0x20A0 linear (0x120 trad)
             movlw 0x20
             movwf BD0ADRH
             movlw 0xA0
@@ -532,8 +543,6 @@ _cw:        ; Set up OUT 0.
 
             ; Arm endpoint.
             bsf BD0STAT, 7 ; UOWN = SIE
-
-            bsf LATC, 2 ; !!! debug !!!
 
             retfie
 
@@ -645,8 +654,8 @@ _pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
             clrf BD6STAT
             clrf BD7STAT
 
-            ; TRNIE = on, URSTIE = on
-            movlw 0n00001001
+            ; STALLIE = on, TRNIE = on, URSTIE = on
+            movlw 0n00101001
             movwf UIE
 
             bsf PIE2, 2 ; USBIE = on
