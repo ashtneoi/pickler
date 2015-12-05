@@ -269,8 +269,6 @@ ctrlout:    ; If in read mode...
             btfss ep0state, 0
               *bra ctrlwait
 
-            bcf LATC, 2 ; !!!debug!!!
-
             ; ep0len -= BD0CNT
             movf BD0CNT, 0
             subwf ep0len
@@ -475,8 +473,6 @@ _ctrl_gd:   movlw 0x20
 
             bsf BD1STAT, 6 ; DTS = 1
 
-            bsf LATC, 2 ; !!!debug!!!
-
             bra _ctrlin
 
 
@@ -545,8 +541,8 @@ start:      ;;; Set up clock. ;;;
             ; (ICSPCLK) RC1: in (analog)
             ;           RC2: out 0
             ;           RC3: out 0
-            ;           RC4: out 0
-            ;           RC5: in (digital)
+            ;      (TX) RC4: out 0
+            ;      (RX) RC5: in (digital)
 
             clrf LATA
             clrf LATC
@@ -561,6 +557,26 @@ start:      ;;; Set up clock. ;;;
             movlw 0n11000011
             movwf ANSELC
 
+            ;;; Set up EUSART. ;;;
+
+            ; symbol rate = 2400 baud
+            movlw 0x04
+            movwf SPBRGH
+            movlw 0xE1
+            movwf SPBRG
+
+            ; SCKP = non-inverted, BRG16 = 16-bit
+            movlw 0n01001000
+            movwf BAUDCON
+
+            ; TX9 = 8-bit, TXEN = on, SYNC = async, BRGH = low speed
+            movlw 0n00100010
+            movwf TXSTA
+
+            ; SPEN = on, RX9 = 8-bit
+            movlw 0n10000000
+            movwf RCSTA
+
             ;;; Wait for clock to stabilize. ;;;
 
             movlb OSCSTAT
@@ -570,6 +586,16 @@ _hfwait:    *btfss OSCSTAT, 0 ; HFIOFS
             movlb OSCSTAT
 _pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
               *bra _pllwait ; (Interrupts are disabled.)
+
+            ;;; Send initial debug byte. ;;;
+
+            bsf LATC, 3
+
+            call delayx
+
+            movlw 0x00
+            call uart_send
+            bsf LATC, 2 ; !!!debug!!!
 
             ;;; Set up USB module. ;;;
 
@@ -618,6 +644,25 @@ _copy:      moviw FSR0++
             movwi FSR1++
             *decfsz copylen
               *goto _copy
+            return
+
+
+uart_send:  movlb PIR1
+_us:        *btfss PIR1, 4 ; TXIF
+              *bra uart_send
+            nop
+            nop
+            movwf TXREG
+            return
+
+
+delayx:     movlw 0xFF
+            movwf 0x70
+_d1:        movlw 0xFF
+_d2:        decfsz WREG
+              *bra _d2
+            decfsz 0x70
+              *bra _d1
             return
 
 
