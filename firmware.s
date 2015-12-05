@@ -421,7 +421,7 @@ ctrlsetup:  ; BD1 might still be stalled.
             decf WREG
             ; 9 = SET_CONFIGURATION
             btfsc STATUS, 2 ; Z
-              *bra stall
+              *bra ctrl_set_configuration
             decf WREG
             ; 10 = GET_INTERFACE
             btfsc STATUS, 2 ; Z
@@ -521,6 +521,13 @@ ctrl_gd_config:
 ctrl_gd_devqual:
             ;bsf LATC, 2
             bra stall
+
+
+ctrl_set_configuration:
+            movlw 3 ; = configured
+            movwf usbstate
+
+            bra ctrlinst
 
 
 ctrlwait:   clrf ep0state ; = waiting
