@@ -267,11 +267,6 @@ ctrlout:    ; Clear interrupt flags.
             bcf UIR, 3 ; TRNIF
             bcf PIR2, 2 ; USBIF
 
-            ; !!! debug !!!
-            movf BD0CNT, 0
-            call uart_send
-            ; !!! debug !!!
-
             ; If in read mode...
             btfss ep0state, 0
               *bra ctrlwait
@@ -317,11 +312,6 @@ ctrlin:     ; Clear interrupt flags.
             bcf UIR, 3 ; TRNIF
             bcf PIR2, 2 ; USBIF
 
-            ; !!! debug !!!
-            movf BD1CNT, 0
-            call uart_send
-            ; !!! debug !!!
-
             ; If in write mode...
             btfsc ep0state, 0
               *bra ctrlwait
@@ -365,13 +355,7 @@ ctrlinst:   bsf BD1STAT, 6 ; DTS = 1
             bra _ctrlin
 
 
-ctrlsetup:  
-            ; !!! debug !!!
-            movf BD0CNT, 0
-            call uart_send
-            ; !!! debug !!!
-
-            bcf UCON, 4 ; PKTDIS
+ctrlsetup:  bcf UCON, 4 ; PKTDIS
 
             ; Clear interrupt flags.
             bcf UIR, 3 ; TRNIF
@@ -450,11 +434,6 @@ ctrl_set_address:
 
 
 ctrl_get_descriptor:
-            ; !!! debug !!!
-            movf req_wValue1, 0
-            call uart_send
-            ; !!! debug !!!
-
             movf req_wValue1, 0 ; descriptor type
 
             decf WREG
@@ -505,9 +484,6 @@ _ctrl_gd:   movlw 0x20
               movf INDF0, 0 ; actual length
             movwf ep0len
             call copy
-
-            movf ep0len, 0
-            call uart_send
 
             bsf BD1STAT, 6 ; DTS = 1
 
