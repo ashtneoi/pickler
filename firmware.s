@@ -263,7 +263,10 @@ inttrans:
 stall:      bra freeze ; Implement me!
 
 
-ctrlout:    
+ctrlout:    ; Clear interrupt flags.
+            bcf UIR, 3 ; TRNIF
+            bcf PIR2, 2 ; USBIF
+
             ; !!! debug !!!
             movf BD0CNT, 0
             call uart_send
@@ -302,9 +305,6 @@ _ctrlout:   ; Clear other bits.
 
             ; Arm endpoint.
             bsf BD0STAT, 7 ; UOWN = SIE
-            ; Clear interrupt flags.
-            bcf UIR, 3 ; TRNIF
-            bcf PIR2, 2 ; USBIF
 
             retfie
 
@@ -313,7 +313,10 @@ ctrloutst:  bsf BD0STAT, 6 ; DTS = 1
             bra _ctrlout
 
 
-ctrlin:     
+ctrlin:     ; Clear interrupt flags.
+            bcf UIR, 3 ; TRNIF
+            bcf PIR2, 2 ; USBIF
+
             ; !!! debug !!!
             movf BD1CNT, 0
             call uart_send
@@ -354,9 +357,6 @@ _ctrlin:    ; Clear other bits.
 
             ; Arm endpoint.
             bsf BD1STAT, 7 ; UOWN = SIE
-            ; Clear interrupt flags.
-            bcf UIR, 3 ; TRNIF
-            bcf PIR2, 2 ; USBIF
 
             retfie
 
@@ -372,6 +372,10 @@ ctrlsetup:
             ; !!! debug !!!
 
             bcf UCON, 4 ; PKTDIS
+
+            ; Clear interrupt flags.
+            bcf UIR, 3 ; TRNIF
+            bcf PIR2, 2 ; USBIF
 
             btfsc req_bmRequestType, 6 ; vendor or reserved
               *bra stall
@@ -552,9 +556,6 @@ _cw:        ; Set up OUT 0.
 
             ; Arm endpoint.
             bsf BD0STAT, 7 ; UOWN = SIE
-            ; Clear interrupt flags.
-            bcf UIR, 3 ; TRNIF
-            bcf PIR2, 2 ; USBIF
 
             bsf LATC, 2 ; !!! debug !!!
 
