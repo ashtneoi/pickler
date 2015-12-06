@@ -203,10 +203,14 @@
 
             .reg 6, ep0len
 
-            .reg 6, copylen
-
             ; [0] = SET ADDRESS
             .reg 6, ep0post
+
+            .reg 6, ep1len
+
+            .reg 6, copylen
+
+            .reg 6, ustatcopy
 
 
             ;;;
@@ -224,12 +228,6 @@ int:        btfss PIR2, 2 ; USBIF
               *bra intreset
             btfsc UIR, 3 ; TRNIF
               *bra inttrans
-            btfsc UIR, 5 ; STALLIF
-              *bra stalled
-            retfie
-
-
-stalled:    bsf LATC, 2
             retfie
 
 
@@ -258,19 +256,83 @@ inttrans:   lslf USTAT, 0
             decf WREG
             btfsc STATUS, 2 ; Z
               *bra ep1
+
             bra stall
 
 
-ep1:        ; Clear interrupt flags.
+ep1:        movf USTAT, 0
+            movwf ustatcopy
+
+            ; Clear interrupt flags.
             bcf UIR, 3 ; TRNIF
             bcf PIR2, 2 ; USBIF
+
+            ; If transaction is IN...
+            btfsc ustatcopy, 2 ; DIR
+              *bra ep1in
+
+ep1out:     ; Clear other bits.
+            movlw 0n01000000
+            andwf BD2STAT
+            bsf BD2STAT, 3 ; DTSEN
+
+            ; Toggle DTS.
+            movlw 0n01000000 ; DTS mask
+            xorwf BD2STAT
+
+            movf BD2CNT, 0
+            movwf ep1len
+
+            movlw 64
+            movwf BD2CNT
+
+            bsf BD2STAT, 7 ; UOWN = SIE
 
             retfie
 
 
-ep0:        ; If transaction is IN...
+ep1in:      ; Toggle DTS.
+            movlw 0n01000000 ; DTS mask
+            xorwf BD3STAT
+
+            movf ep1len
+            btfsc STATUS, 2 ; Z
+              *bra _ep1in
+
+            movlw 0x21
+            movwf FSR0H
+            movlw 0x40
+            movwf FSR0L
+
+            movlw 0x21
+            movwf FSR1H
+            movlw 0x90
+            movwf FSR1L
+
+            movf ep1len, 0
+            call copy
+
+_ep1in:     movf ep1len, 0
+            movwf BD3CNT
+
+            clrf ep1len
+
+            ; Clear other bits.
+            movlw 0n01000000
+            andwf BD3STAT
+            bsf BD3STAT, 3 ; DTSEN
+
+            bsf BD3STAT, 7 ; UOWN = SIE
+
+            retfie
+
+
+ep0:        bcf LATC, 2
+            ; If transaction is IN...
             btfsc USTAT, 2 ; DIR
               *bra ctrlin
+            ; TODO: Copy this to a register so we can clear interrupt flags
+            ; sooner.
 
             movf BD0STAT, 0
             andlw 0n00111100
@@ -282,7 +344,8 @@ ep0:        ; If transaction is IN...
             *bra ctrlout
 
 
-stall:      movlw 0n00001100
+stall:      bsf LATC, 2
+            movlw 0n00001100
             movwf BD0STAT
             movwf BD1STAT
             bsf BD1STAT, 7 ; UOWN = SIE
@@ -316,8 +379,9 @@ ctrlout:    ; Clear interrupt flags.
             xorwf BD0STAT
 
 _ctrlout:   ; Clear other bits.
-            movlw 0n01001000
+            movlw 0n01000000
             andwf BD0STAT
+            bsf BD0STAT, 3 ; DTSEN
 
             ; BD0CNT = min(ep0len, 64)
             movf ep0len, 0
@@ -361,8 +425,9 @@ ctrlin:     ; Clear interrupt flags.
             xorwf BD1STAT
 
 _ctrlin:    ; Clear other bits.
-            movlw 0n01001000
+            movlw 0n01000000
             andwf BD1STAT
+            bsf BD1STAT, 3 ; DTSEN
 
             ; BD1CNT = min(ep0len, 64)
             movf ep0len, 0
@@ -490,7 +555,7 @@ ctrl_get_descriptor:
             decf WREG
             ; 6 = DEVICE_QUALIFIER
             btfsc STATUS, 2 ; Z
-              *bra ctrl_gd_devqual
+              *bra stall
             decf WREG
             ; 7 = OTHER_SPEED_CONFIGURATION
             btfsc STATUS, 2 ; Z
@@ -544,17 +609,14 @@ ctrl_gd_config:
             bra _ctrl_gd
 
 
-ctrl_gd_devqual:
-            ;bsf LATC, 2
-            bra stall
-
-
 ctrl_set_configuration:
             movlw 3 ; = configured
             movwf usbstate
 
             movlw 0n00011110
             movwf UEP1
+
+            clrf ep1len
 
             movlw 0n00001000
             movwf BD2STAT
@@ -571,9 +633,12 @@ ctrl_set_configuration:
             movwf BD3ADRH
             movlw 0x90
             movwf BD3ADRL
+            ;movlw 64
+            ;movwf BD3CNT
             clrf BD3CNT
 
             bsf BD2STAT, 7 ; UOWN = SIE
+            bsf BD3STAT, 7 ; UOWN = SIE
 
             bra ctrlinst
 
@@ -604,7 +669,9 @@ _ctrlwait:  ; address = 0x20A0 linear (0x120 trad)
             retfie
 
 
-init:       clrf UEP1
+init:       clrf BD2STAT
+            clrf BD3STAT
+            clrf UEP1
             clrf ep0state ; = waiting
             clrf ep0post
             return
@@ -712,8 +779,8 @@ _pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
             clrf BD6STAT
             clrf BD7STAT
 
-            ; STALLIE = on, TRNIE = on, URSTIE = on
-            movlw 0n00101001
+            ; TRNIE = on, URSTIE = on
+            movlw 0n00001001
             movwf UIE
 
             bsf PIE2, 2 ; USBIE = on
@@ -817,14 +884,14 @@ config0_descriptor:
             retlw 5 ; bDescriptorType
             retlw 0x01 ; bEndpointAddress = 1 OUT
             retlw 0n00000010 ; bmAttributes = bulk
-            retlw 0 ; wMaxPacketSize = 64
-            retlw 64 ; same
+            retlw 64 ; wMaxPacketSize = 64
+            retlw 0 ; same
             retlw 0 ; bInterval = never NAKs
 
             retlw 7 ; bLength
             retlw 5 ; bDescriptorType
             retlw 0x81 ; bEndpointAddress = 1 IN
             retlw 0n00000010 ; bmAttributes = bulk
-            retlw 0 ; wMaxPacketSize = 64
-            retlw 64 ; same
+            retlw 64 ; wMaxPacketSize = 64
+            retlw 0 ; same
             retlw 0 ; bInterval = never NAKs
