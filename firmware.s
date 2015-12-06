@@ -247,7 +247,9 @@ intreset:   ; Clear all USB interrupt flags.
             goto freeze
 
 
-inttrans:   lslf USTAT, 0
+inttrans:   movf USTAT, 0
+            movwf ustatcopy
+            lslf WREG
             swapf WREG
             andlw 0x07
 
@@ -260,10 +262,7 @@ inttrans:   lslf USTAT, 0
             bra stall
 
 
-ep1:        movf USTAT, 0
-            movwf ustatcopy
-
-            ; Clear interrupt flags.
+ep1:        ; Clear interrupt flags.
             bcf UIR, 3 ; TRNIF
             bcf PIR2, 2 ; USBIF
 
@@ -327,12 +326,9 @@ _ep1in:     movf ep1len, 0
             retfie
 
 
-ep0:        bcf LATC, 2
-            ; If transaction is IN...
-            btfsc USTAT, 2 ; DIR
+ep0:        ; If transaction is IN...
+            btfsc ustatcopy, 2 ; DIR
               *bra ctrlin
-            ; TODO: Copy this to a register so we can clear interrupt flags
-            ; sooner.
 
             movf BD0STAT, 0
             andlw 0n00111100
@@ -344,8 +340,7 @@ ep0:        bcf LATC, 2
             *bra ctrlout
 
 
-stall:      bsf LATC, 2
-            movlw 0n00001100
+stall:      movlw 0n00001100
             movwf BD0STAT
             movwf BD1STAT
             bsf BD1STAT, 7 ; UOWN = SIE
