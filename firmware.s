@@ -309,7 +309,18 @@ ep1in:      ; Toggle DTS.
             movwf FSR1L
 
             movf ep1len, 0
+            movwf 0x70
             call copy
+
+            movlw 0x21
+            movwf FSR0H
+            movlw 0x90
+            movwf FSR0L
+_ep1insend: moviw FSR0++
+            call uart_send
+            decf 0x70
+            btfss STATUS, 2 ; Z
+              *bra _ep1insend
 
 _ep1in:     movf ep1len, 0
             movwf BD3CNT
@@ -748,9 +759,6 @@ _pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
             ;;; Send initial debug byte. ;;;
 
             call delayx
-
-            movlw 0x00
-            call uart_send
 
             ;;; Set up USB module. ;;;
 
