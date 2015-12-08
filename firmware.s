@@ -206,8 +206,6 @@
             ; [0] = SET ADDRESS
             .reg 6, ep0post
 
-            .reg 6, ep1len
-
             .reg 6, copylen
 
             .reg 6, ustatcopy
@@ -270,7 +268,7 @@ ep1:        ; Clear interrupt flags.
             btfsc ustatcopy, 2 ; DIR
               *bra ep1in
 
-ep1out:     ; Clear other bits.
+ep1out:     ; Fix up BD2STAT.
             movlw 0n01000000
             andwf BD2STAT
             bsf BD2STAT, 3 ; DTSEN
@@ -279,10 +277,20 @@ ep1out:     ; Clear other bits.
             movlw 0n01000000 ; DTS mask
             xorwf BD2STAT
 
-            movf BD2CNT, 0
-            movwf ep1len
+            movf BD2CNT
+            btfsc STATUS, 2 ; Z
+              *bra _ep1done
 
-            movlw 64
+            movlw 0x21
+            movwf FSR0H
+            movlw 0x40
+            movwf FSR0L
+_ep1tx:     moviw FSR0++
+            call uart_send
+            decfsz BD2CNT
+              *bra _ep1tx
+
+_ep1done:   movlw 32
             movwf BD2CNT
 
             bsf BD2STAT, 7 ; UOWN = SIE
@@ -290,47 +298,17 @@ ep1out:     ; Clear other bits.
             retfie
 
 
-ep1in:      ; Toggle DTS.
-            movlw 0n01000000 ; DTS mask
-            xorwf BD3STAT
-
-            movf ep1len
-            btfsc STATUS, 2 ; Z
-              *bra _ep1in
-
-            movlw 0x21
-            movwf FSR0H
-            movlw 0x40
-            movwf FSR0L
-
-            movlw 0x21
-            movwf FSR1H
-            movlw 0x90
-            movwf FSR1L
-
-            movf ep1len, 0
-            movwf 0x70
-            call copy
-
-            movlw 0x21
-            movwf FSR0H
-            movlw 0x90
-            movwf FSR0L
-_ep1insend: moviw FSR0++
-            call uart_send
-            decf 0x70
-            btfss STATUS, 2 ; Z
-              *bra _ep1insend
-
-_ep1in:     movf ep1len, 0
-            movwf BD3CNT
-
-            clrf ep1len
-
-            ; Clear other bits.
+ep1in:      ; Fix up BD3STAT.
             movlw 0n01000000
             andwf BD3STAT
             bsf BD3STAT, 3 ; DTSEN
+
+            ; Toggle DTS.
+            movlw 0n01000000 ; DTS mask
+            xorwf BD3STAT
+
+            movlw 32
+            movwf BD3CNT
 
             bsf BD3STAT, 7 ; UOWN = SIE
 
@@ -622,8 +600,6 @@ ctrl_set_configuration:
             movlw 0n00011110
             movwf UEP1
 
-            clrf ep1len
-
             movlw 0n00001000
             movwf BD2STAT
             movwf BD3STAT
@@ -632,14 +608,14 @@ ctrl_set_configuration:
             movwf BD2ADRH
             movlw 0x40
             movwf BD2ADRL
-            movlw 64
+            movlw 32
             movwf BD2CNT
 
             movlw 0x21
             movwf BD3ADRH
-            movlw 0x90
+            movlw 0x60
             movwf BD3ADRL
-            ;movlw 64
+            ;movlw 32
             ;movwf BD3CNT
             clrf BD3CNT
 
@@ -814,7 +790,6 @@ uart_send:  movlb PIR1
 _us:        *btfss PIR1, 4 ; TXIF
               *bra uart_send
             nop
-            nop
             movwf TXREG
             return
 
@@ -887,7 +862,7 @@ config0_descriptor:
             retlw 5 ; bDescriptorType
             retlw 0x01 ; bEndpointAddress = 1 OUT
             retlw 0n00000010 ; bmAttributes = bulk
-            retlw 64 ; wMaxPacketSize = 64
+            retlw 32 ; wMaxPacketSize = 32
             retlw 0 ; same
             retlw 0 ; bInterval = never NAKs
 
@@ -895,6 +870,6 @@ config0_descriptor:
             retlw 5 ; bDescriptorType
             retlw 0x81 ; bEndpointAddress = 1 IN
             retlw 0n00000010 ; bmAttributes = bulk
-            retlw 64 ; wMaxPacketSize = 64
+            retlw 32 ; wMaxPacketSize = 32
             retlw 0 ; same
             retlw 0 ; bInterval = never NAKs
