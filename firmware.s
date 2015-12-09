@@ -909,7 +909,7 @@ config0_descriptor:
             retlw 0n00000010 ; bmAttributes = bulk
             retlw 32 ; wMaxPacketSize = 32
             retlw 0 ; same
-            retlw 0 ; bInterval = never NAKs
+            retlw 1 ; bInterval
 
             retlw 7 ; bLength
             retlw 5 ; bDescriptorType
@@ -917,7 +917,7 @@ config0_descriptor:
             retlw 0n00000010 ; bmAttributes = bulk
             retlw 32 ; wMaxPacketSize = 32
             retlw 0 ; same
-            retlw 0 ; bInterval = never NAKs
+            retlw 1 ; bInterval
 
             retlw 7 ; bLength
             retlw 5 ; bDescriptorType
@@ -925,7 +925,7 @@ config0_descriptor:
             retlw 0n00000010 ; bmAttributes = bulk
             retlw 32 ; wMaxPacketSize = 32
             retlw 0 ; same
-            retlw 0 ; bInterval = never NAKs
+            retlw 1 ; bInterval
 
             retlw 7 ; bLength
             retlw 5 ; bDescriptorType
@@ -933,4 +933,4 @@ config0_descriptor:
             retlw 0n00000010 ; bmAttributes = bulk
             retlw 32 ; wMaxPacketSize = 32
             retlw 0 ; same
-            retlw 0 ; bInterval = never NAKs
+            retlw 1 ; bInterval
