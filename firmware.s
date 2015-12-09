@@ -258,7 +258,7 @@ intreset:   ; Clear all USB interrupt flags.
 inttrans:   movf USTAT, 0
             lsrf WREG
             lsrf WREG
-            andlw 0x0F
+            andlw 0n00001111
 
             ; Clear interrupt flags. (Doesn't affect Z.)
             bcf UIR, 3 ; TRNIF
@@ -357,8 +357,9 @@ ep2out:     ; Fix up BD4STAT.
 
 _ep2o1:     btfsc INDF0, 7
               *bra _ep2onext
+            movlp cmd1_ser_rw
             btfss INDF0, 6 ; end of command
-              *bra cmd1_serial_rw
+              *goto cmd1_ser_rw
 
             incf ep2count
 
@@ -369,8 +370,9 @@ _ep2o1:     btfsc INDF0, 7
 
 _ep2o2:     btfss INDF0, 7
               *bra _ep2o1
+            movlp cmd2
             btfss INDF0, 6 ; end of command
-              *bra cmd2
+              *goto cmd2
 
             incf ep2count
 
@@ -381,8 +383,9 @@ _ep2o2:     btfss INDF0, 7
 
 _ep2o3:     btfss INDF0, 7
               *bra _ep2o1
+            movlp cmd3
             btfss INDF0, 6 ; end of command
-              *bra cmd3
+              *goto cmd3
 
 _ep2onext:  clrf ep2count
 
@@ -576,20 +579,6 @@ ctrlsetup:  ; BD1 might still be stalled.
             bra stall
 
 
-cmd1_serial_rw:
-            movf INDF0, 0
-            movwf U0
-            movlw 6
-            call serial_rw
-
-            bra _ep2onext
-
-
-cmd2:       bra _ep2onext
-
-cmd3:       bra _ep2onext
-
-
 ctrl_set_address:
             bsf ep0post, 0 ; SET_ADDRESS
 
@@ -752,6 +741,82 @@ _ctrlwait:  ; address = 0x20A0 linear (0x120 trad)
             retfie
 
 
+cmd1_ser_rw:
+            movf INDF0, 0
+            movwf U0
+            movlw 6
+            call serial_rw
+
+            bra _ep2onext
+
+
+cmd2:       btfsc INDF0, 5
+              *bra cmd2_ext_a
+
+            ; Implement me!
+
+            bra _ep2onext
+
+cmd2_ext_a: moviw --FSR0
+            swapf WREG
+            andlw 0n00000011
+            ; 0
+            btfsc STATUS, 2 ; Z
+              *bra cmd2_ext_b
+            decf WREG
+            ; 1
+            btfsc STATUS, 2 ; Z
+              *bra cmd2_par
+            decf WREG
+            ; 2
+            btfsc STATUS, 2 ; Z
+              *bra cmd2_delay
+            decf WREG
+            ; 3
+            *bra cmd2_pard
+
+cmd2_ext_b: movf INDF0, 0
+            andlw 0n00001111
+            ; 0
+            btfsc STATUS, 2 ; Z
+              *bra cmd2_ser_r
+            decf WREG
+            ; 1
+            btfsc STATUS, 2 ; Z
+              *bra cmd2_smode
+            ; other
+            bra _ep2onext
+
+cmd2_par:   bra _ep2onext
+
+cmd2_pard:  bra _ep2onext
+
+cmd2_delay: movf INDF0, 0
+            andlw 0n00001111
+            movwf U0
+
+            moviw ++FSR0
+            swapf WREG
+            andlw 0n11110000
+            iorwf U0, 0
+
+            call delay250n417
+
+            movlp delay250n417
+            btfsc INDF0, 4
+              *call delay250n417
+
+            bra _ep2onext
+
+
+cmd2_ser_r: bra _ep2onext
+
+cmd2_smode: bra _ep2onext
+
+
+cmd3:       bra _ep2onext
+
+
 init:       clrf BD2STAT
             clrf BD3STAT
             clrf BD4STAT
@@ -905,6 +970,12 @@ _d2:        decfsz WREG
               *bra _d2
             decfsz 0x70
               *bra _d1
+            return
+
+
+delay250n417:
+            decfsz WREG
+              *bra delay250n417
             return
 
 
