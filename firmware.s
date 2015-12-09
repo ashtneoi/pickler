@@ -206,10 +206,20 @@
             ; [0] = SET ADDRESS
             .reg 6, ep0post
 
-            .reg 6, copylen
+            .reg 6, ep2count
 
-            .reg 6, ustatcopy
-
+            .creg S0
+            .creg S1
+            .creg S2
+            .creg S3
+            .creg U0
+            .creg U1
+            .creg U2
+            .creg U3
+            .creg U4
+            .creg U5
+            .creg U6
+            .creg U7
 
             ;;;
             ;;; interrupt vectors
@@ -246,9 +256,6 @@ intreset:   ; Clear all USB interrupt flags.
 
 
 inttrans:   movf USTAT, 0
-            movwf ustatcopy
-            ;lslf WREG
-            ;swapf WREG
             lsrf WREG
             lsrf WREG
             andlw 0x0F
@@ -334,17 +341,54 @@ ep2out:     ; Fix up BD4STAT.
             movlw 0n01000000 ; DTS mask
             xorwf BD4STAT
 
-            movlb 5
-            movf 0x20, 0
+            movf BD4CNT
             btfsc STATUS, 2 ; Z
               *bra _ep2out
 
-            movlw 0n00000100
-            xorwf LATC
+            movlw 0x21
+            movwf FSR0H
+            movlw 0x90
+            movwf FSR0L
 
-            ; Toggle RA4.
-            movlw 0n00010000
-            xorwf LATA
+            btfsc ep2count, 1 ; >= 2
+              *bra _ep2o3
+            btfsc ep2count, 0 ; == 1
+              *bra _ep2o2
+
+_ep2o1:     btfsc INDF0, 7
+              *bra _ep2onext
+            btfss INDF0, 6 ; end of command
+              *bra cmd1_serial_rw
+
+            incf ep2count
+
+            addfsr FSR0, 1
+            decf BD4CNT
+            btfsc STATUS, 2 ; Z
+              *bra _ep2out
+
+_ep2o2:     btfss INDF0, 7
+              *bra _ep2o1
+            btfss INDF0, 6 ; end of command
+              *bra cmd2
+
+            incf ep2count
+
+            addfsr FSR0, 1
+            decf BD4CNT
+            btfsc STATUS, 2 ; Z
+              *bra _ep2out
+
+_ep2o3:     btfss INDF0, 7
+              *bra _ep2o1
+            btfss INDF0, 6 ; end of command
+              *bra cmd3
+
+_ep2onext:  clrf ep2count
+
+            addfsr FSR0, 1
+            decfsz BD4CNT
+              *bra _ep2o1
 
 _ep2out:    movlw 32
             movwf BD4CNT
@@ -528,7 +572,22 @@ ctrlsetup:  ; BD1 might still be stalled.
             ; 12 = SYNCH_FRAME
             btfsc STATUS, 2 ; Z
               *bra stall
+
             bra stall
+
+
+cmd1_serial_rw:
+            movf INDF0, 0
+            movwf U0
+            movlw 6
+            call serial_rw
+
+            bra _ep2onext
+
+
+cmd2:       bra _ep2onext
+
+cmd3:       bra _ep2onext
 
 
 ctrl_set_address:
@@ -701,6 +760,7 @@ init:       clrf BD2STAT
             clrf UEP2
             clrf ep0state ; = waiting
             clrf ep0post
+            clrf ep2count
             return
 
 
@@ -822,12 +882,11 @@ _pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
             ;;;
 
 
-copy:       movwf copylen
-            movlp _copy
+copy:       movwf U0
 _copy:      moviw FSR0++
             movwi FSR1++
-            *decfsz copylen
-              *goto _copy
+            *decfsz U0
+              *bra _copy
             return
 
 
@@ -846,6 +905,24 @@ _d2:        decfsz WREG
               *bra _d2
             decfsz 0x70
               *bra _d1
+            return
+
+
+serial_rw:  movwf U1
+            movf LATA, 0
+            bsf WREG, 4
+_srw:       lsrf U0
+            *bcf LATA, 4
+            nop
+            bcf WREG, 5
+            btfsc STATUS, 0 ; C
+              bsf WREG, 5
+            *movwf LATA
+            decfsz U1
+              *bra _srw
+            nop
+            nop
+            *bcf LATA, 4
             return
 
 
