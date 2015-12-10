@@ -785,11 +785,47 @@ cmd2_ext_b: movf INDF0, 0
             btfsc STATUS, 2 ; Z
               *bra cmd2_smode
             ; other
+
+            addfsr FSR0, 1
+
             bra _ep2onext
 
-cmd2_par:   bra _ep2onext
+cmd2_par:   addfsr FSR0, 1
 
-cmd2_pard:  bra _ep2onext
+            movlw 0n00000100
+            xorwf LATC
+
+            movlp _ep2onext
+            btfsc INDF0, 4 ; h
+              *goto _ep2onext
+
+            addfsr FSR0, 0x3F ; -1
+            movf LATC, 0
+            bcf WREG, 3
+            btfsc INDF0, 0 ; v0
+              bsf WREG, 3
+            movwf LATC
+
+            addfsr FSR0, 1
+
+            bra _ep2onext
+
+cmd2_pard:  addfsr FSR0, 1
+
+            movlp _ep2onext
+            btfsc INDF0, 4 ; h
+              *goto _ep2onext
+
+            addfsr FSR0, 0x3F ; -1
+            movf TRISC, 0
+            bcf WREG, 3
+            btfsc INDF0, 0 ; t0
+              bsf WREG, 3
+            movwf TRISC
+
+            addfsr FSR0, 1
+
+            bra _ep2onext
 
 cmd2_delay: movf INDF0, 0
             andlw 0n00001111
@@ -809,9 +845,11 @@ cmd2_delay: movf INDF0, 0
             bra _ep2onext
 
 
-cmd2_ser_r: bra _ep2onext
+cmd2_ser_r: addfsr FSR0, 1
+            bra _ep2onext
 
-cmd2_smode: bra _ep2onext
+cmd2_smode: addfsr FSR0, 1
+            bra _ep2onext
 
 
 cmd3:       bra _ep2onext
@@ -854,7 +892,7 @@ start:      ;;; Set up clock. ;;;
             ; (ICSPDAT) RC0: in (analog)
             ; (ICSPCLK) RC1: in (analog)
             ;           RC2: out 0
-            ;           RC3: out 0
+            ;           RC3: in (digital)
             ;      (TX) RC4: out 0
             ;      (RX) RC5: in (digital)
 
@@ -864,7 +902,7 @@ start:      ;;; Set up clock. ;;;
 
             movlw 0n11001111
             movwf TRISA
-            movlw 0n11100011
+            movlw 0n11101011
             movwf TRISC
 
             movlw 0n11001111
