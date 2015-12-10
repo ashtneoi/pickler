@@ -836,10 +836,12 @@ cmd2_delay: movf INDF0, 0
             moviw ++FSR0
             swapf WREG
             andlw 0n11110000
-            iorwf U0, 0
+            iorwf U0
 
+            movf U0, 0
             call delay250n417
 
+            movf U0, 0
             movlp delay250n417
             btfsc INDF0, 4
               *call delay250n417
