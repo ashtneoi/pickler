@@ -208,6 +208,8 @@
 
             .reg 6, ep2count
 
+            .reg 6, Qmode
+
             .creg S0
             .creg S1
             .creg S2
@@ -359,6 +361,8 @@ ep2out:     ; Fix up BD4STAT.
 
 _ep2o1:     btfsc INDF0, 7
               *bra _ep2onext
+            movf INDF0, 0
+            movwf S0
             movlp cmd1_ser_rw
             btfss INDF0, 6 ; end of command
               *goto cmd1_ser_rw
@@ -372,6 +376,8 @@ _ep2o1:     btfsc INDF0, 7
 
 _ep2o2:     btfss INDF0, 7
               *bra _ep2o1
+            movf INDF0, 0
+            movwf S1
             movlp cmd2
             btfss INDF0, 6 ; end of command
               *goto cmd2
@@ -385,6 +391,8 @@ _ep2o2:     btfss INDF0, 7
 
 _ep2o3:     btfss INDF0, 7
               *bra _ep2o1
+            movf INDF0, 0
+            movwf S2
             movlp cmd3
             btfss INDF0, 6 ; end of command
               *goto cmd3
@@ -744,7 +752,7 @@ _ctrlwait:  ; address = 0x20A0 linear (0x120 trad)
 
 
 cmd1_ser_rw:
-            movf INDF0, 0
+            movf S0, 0
             movwf U0
             movlw 6
             call serial_rw
@@ -752,15 +760,29 @@ cmd1_ser_rw:
             bra _ep2onext
 
 
-cmd2:       btfsc INDF0, 5
+cmd2:       btfsc S1, 5
               *bra cmd2_ext_a
 
-            ; Implement me!
+            swapf S1, 0
+            andlw 0n11110000
+            movwf U0
+
+            movf S0, 0
+            andlw 0n00001111
+            iorwf U0
+
+            swapf S0, 0
+            movwf U1
+
+            movlw 8
+            btfsc S1, 4 ; w == 1
+              movlw 10
+
+            call serial_rw
 
             bra _ep2onext
 
-cmd2_ext_a: moviw --FSR0
-            swapf WREG
+cmd2_ext_a: swapf S0, 0
             andlw 0n00000011
             ; 0
             btfsc STATUS, 2 ; Z
@@ -777,7 +799,7 @@ cmd2_ext_a: moviw --FSR0
             ; 3
             *bra cmd2_pard
 
-cmd2_ext_b: movf INDF0, 0
+cmd2_ext_b: movf S0, 0
             andlw 0n00001111
             ; 0
             btfsc STATUS, 2 ; Z
@@ -792,71 +814,113 @@ cmd2_ext_b: movf INDF0, 0
 
             bra _ep2onext
 
-cmd2_par:   addfsr FSR0, 1
-
-            movlw 0n00000100
-            xorwf LATC
-
-            movlp _ep2onext
-            btfsc INDF0, 4 ; h
+cmd2_par:   movlp _ep2onext
+            btfsc S1, 4 ; h
               *goto _ep2onext
 
-            addfsr FSR0, 0x3F ; -1
             movf LATC, 0
             bcf WREG, 3
-            btfsc INDF0, 0 ; v0
+            btfsc S0, 0 ; v0
               bsf WREG, 3
             movwf LATC
 
-            addfsr FSR0, 1
-
             bra _ep2onext
 
-cmd2_pard:  addfsr FSR0, 1
-
-            movlp _ep2onext
-            btfsc INDF0, 4 ; h
+cmd2_pard:  movlp _ep2onext
+            btfsc S1, 4 ; h
               *goto _ep2onext
 
-            addfsr FSR0, 0x3F ; -1
             movf TRISC, 0
             bcf WREG, 3
-            btfsc INDF0, 0 ; t0
+            btfsc S0, 0 ; t0
               bsf WREG, 3
             movwf TRISC
 
-            addfsr FSR0, 1
-
             bra _ep2onext
 
-cmd2_delay: movf INDF0, 0
+cmd2_delay: movf S0, 0
             andlw 0n00001111
             movwf U0
 
-            moviw ++FSR0
-            swapf WREG
+            swapf S1, 0
             andlw 0n11110000
             iorwf U0
 
             movf U0, 0
             call delay250n417
 
+            movlp _ep2onext
+            btfss S1, 4 ; T8 == 0
+              *goto _ep2onext
+
             movf U0, 0
-            movlp delay250n417
-            btfsc INDF0, 4
-              *call delay250n417
+            call delay250n417
 
             bra _ep2onext
 
 
-cmd2_ser_r: addfsr FSR0, 1
+cmd2_ser_r: bra _ep2onext
+
+
+cmd2_smode: movf S1, 0
+            andlw 0n00000011
+            movwf Qmode
+
+            movf LATA, 0
+            bsf WREG, 4
+            btfsc Qmode, 0 ; e == 1
+              bcf WREG, 4
+            movwf LATA
+
+            movf TRISA, 0
+            bcf WREG, 4
+            bcf WREG, 5
+            btfsc S1, 2 ; t
+              bsf WREG, 4
+            btfsc S1, 2 ; t
+              bsf WREG, 5
+            movwf TRISA
+
             bra _ep2onext
 
-cmd2_smode: addfsr FSR0, 1
+
+cmd3:       btfsc S2, 6
+              *bra cmd3_ext
+
+            ; d[13:8]
+            movf S2, 0
+            andlw 0n00111111
+            movwf U1
+
+            ; d[7:4]
+            swapf S1, 0
+            andlw 0n11110000
+            movwf U0
+
+            ; d[3:0]
+            movf S0, 0
+            andlw 0n00001111
+            iorwf U0
+
+            ; d[15:14]
+            movf S0, 0
+            andlw 0n00110000
+            lslf WREG
+            lslf WREG
+            iorwf U1
+
+            movlw 12
+            btfsc S1, 4
+              addlw 2
+            btfsc S1, 5
+              addlw 4
+
+            call serial_rw
+
             bra _ep2onext
 
 
-cmd3:       bra _ep2onext
+cmd3_ext:   bra _ep2onext
 
 
 init:       clrf BD2STAT
@@ -868,6 +932,7 @@ init:       clrf BD2STAT
             clrf ep0state ; = waiting
             clrf ep0post
             clrf ep2count
+            clrf Qmode ; idle level = 0, sample edge = first
             return
 
 
@@ -891,8 +956,8 @@ start:      ;;; Set up clock. ;;;
             ;      (D+) RA0: X
             ;      (D-) RA1: X
             ;   (~MCLR) RA3: X
-            ; (SELFCLK) RA4: out 0
-            ; (SELFDAT) RA5: out 0
+            ; (SELFCLK) RA4: in (digital)
+            ; (SELFDAT) RA5: in (digital)
             ; (ICSPDAT) RC0: in (analog)
             ; (ICSPCLK) RC1: in (analog)
             ;           RC2: out 0
@@ -904,7 +969,7 @@ start:      ;;; Set up clock. ;;;
             movlw 0n00001000
             movwf LATC
 
-            movlw 0n11001111
+            movlw 0n11111111
             movwf TRISA
             movlw 0n11101011
             movwf TRISC
@@ -1022,20 +1087,40 @@ delay250n417:
 
 
 serial_rw:  movwf U2
-            movf LATA, 0
-            bsf WREG, 4 ; QCLK
-_srw:       lsrf U1
-            *bcf LATA, 4 ; QCLK
+
+            btfsc Qmode, 0 ; e == 1 (falling)
+              *bra _srw1
+
+_srw0:      movf LATA, 0
+            bcf WREG, 4
+_srw0lp:    lsrf U1
+            *bsf LATA, 4 ; latch
             rrf U0
-            bcf WREG, 5 ; QDAT
+            bcf WREG, 5
             btfsc STATUS, 0 ; C
-              bsf WREG, 5 ; QDAT
-            *movwf LATA
-            decfsz U1
-              *bra _srw
+              bsf WREG, 5
+            *movwf LATA ; setup
+            decfsz U2
+              *bra _srw0lp
             nop
             nop
-            *bcf LATA, 4 ; QCLK
+            *bsf LATA, 4
+            return
+
+_srw1:      movf LATA, 0
+            bsf WREG, 4
+_srw1lp:    lsrf U1
+            *bcf LATA, 4 ; latch
+            rrf U0
+            bcf WREG, 5
+            btfsc STATUS, 0 ; C
+              bsf WREG, 5
+            *movwf LATA ; setup
+            decfsz U2
+              *bra _srw1lp
+            nop
+            nop
+            *bcf LATA, 4
             return
 
 
