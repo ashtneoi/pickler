@@ -212,6 +212,8 @@
             .creg S1
             .creg S2
             .creg S3
+            .creg S4
+            .creg S5
             .creg U0
             .creg U1
             .creg U2
@@ -1017,21 +1019,21 @@ delay250n417:
             return
 
 
-serial_rw:  movwf U1
+serial_rw:  movwf U2
             movf LATA, 0
-            bsf WREG, 4
-_srw:       lsrf U0
-            *bcf LATA, 4
-            nop
-            bcf WREG, 5
+            bsf WREG, 4 ; QCLK
+_srw:       lsrf U1
+            *bcf LATA, 4 ; QCLK
+            rrf U0
+            bcf WREG, 5 ; QDAT
             btfsc STATUS, 0 ; C
-              bsf WREG, 5
+              bsf WREG, 5 ; QDAT
             *movwf LATA
             decfsz U1
               *bra _srw
             nop
             nop
-            *bcf LATA, 4
+            *bcf LATA, 4 ; QCLK
             return
 
 
