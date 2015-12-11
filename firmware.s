@@ -206,7 +206,7 @@
             ; [0] = SET ADDRESS
             .reg 6, ep0post
 
-            .reg 6, ep2count
+            .reg 6, cmdlen
 
             .reg 6, Qmode
 
@@ -354,9 +354,9 @@ ep2out:     ; Fix up BD4STAT.
             movlw 0x90
             movwf FSR0L
 
-            btfsc ep2count, 1 ; >= 2
+            btfsc cmdlen, 1 ; >= 2
               *bra _ep2o3
-            btfsc ep2count, 0 ; == 1
+            btfsc cmdlen, 0 ; == 1
               *bra _ep2o2
 
 _ep2o1:     btfsc INDF0, 7
@@ -367,7 +367,7 @@ _ep2o1:     btfsc INDF0, 7
             btfss INDF0, 6 ; end of command
               *goto cmd1_ser_rw
 
-            incf ep2count
+            incf cmdlen
 
             addfsr FSR0, 1
             decf BD4CNT
@@ -382,7 +382,7 @@ _ep2o2:     btfss INDF0, 7
             btfss INDF0, 6 ; end of command
               *goto cmd2
 
-            incf ep2count
+            incf cmdlen
 
             addfsr FSR0, 1
             decf BD4CNT
@@ -397,7 +397,7 @@ _ep2o3:     btfss INDF0, 7
             btfss INDF0, 6 ; end of command
               *goto cmd3
 
-_ep2onext:  clrf ep2count
+_ep2onext:  clrf cmdlen
 
             addfsr FSR0, 1
             decfsz BD4CNT
@@ -718,9 +718,7 @@ ctrl_set_configuration:
             clrf BD5CNT
 
             bsf BD2STAT, 7 ; UOWN = SIE
-            ;bsf BD3STAT, 7 ; UOWN = SIE
             bsf BD4STAT, 7 ; UOWN = SIE
-            ;bsf BD5STAT, 7 ; UOWN = SIE
 
             bra ep0insta
 
@@ -931,7 +929,7 @@ init:       clrf BD2STAT
             clrf UEP2
             clrf ep0state ; = waiting
             clrf ep0post
-            clrf ep2count
+            clrf cmdlen
             clrf Qmode ; idle level = 0, sample edge = first
             return
 
