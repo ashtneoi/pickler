@@ -181,6 +181,15 @@
             ; WRT = off
             .cfg 0x8008, 0n11_1111_1100_1111
 
+            ; Data memory bank usage:
+            ;   0x2000 0x020 0: buffer descriptors
+            ;   0x2050 0x0A0 1: buffer descriptors
+            ;   0x20A0 0x120 2: 0 OUT
+            ;   0x20F0 0x1A0 3: 0 IN
+            ;   0x2140 0x220 4: 1 OUT, 1 IN
+            ;   0x2190 0x2A0 5: 2 OUT, 2 IN
+            ;   0x21E0 0x320 6: general
+
             .sfr 0x120, req_bmRequestType
             .sfr 0x121, req_bRequest
             .sfr 0x122, req_wValue0
@@ -206,9 +215,16 @@
             ; [0] = SET ADDRESS
             .reg 6, ep0post
 
-            .reg 6, cmdlen
+            .reg 6, ep2olen
 
+            ; [0] = serial sample edge (rising, falling)
+            ; [1] = open-drain outputs (no, yes)
+            ; [2] = QCLK and QDAT direction (output, high-Z)
             .reg 6, Qmode
+
+            .reg 6, ep2ilen
+
+            .reg 6, cmdrsplen
 
             .creg S0
             .creg S1
@@ -282,9 +298,9 @@ inttrans:   movf USTAT, 0
             decf WREG
             btfsc STATUS, 2 ; Z
               *bra ep2out
-            ;decf WREG
-            ;btfsc STATUS, 2 ; Z
-              ;*bra ep2in
+            decf WREG
+            btfsc STATUS, 2 ; Z
+              *bra ep2in
 
             bra stall
 
@@ -319,7 +335,7 @@ _ep1out:    movlw 32
             retfie
 
 
-ep1in:      ; Fix up BD3STAT.
+ep1in:      ; Fix BD3STAT.
             movlw 0n01000000
             andwf BD3STAT
             bsf BD3STAT, 3 ; DTSEN
@@ -336,7 +352,7 @@ ep1in:      ; Fix up BD3STAT.
             retfie
 
 
-ep2out:     ; Fix up BD4STAT.
+ep2out:     ; Fix BD4STAT.
             movlw 0n01000000
             andwf BD4STAT
             bsf BD4STAT, 3 ; DTSEN
@@ -354,9 +370,16 @@ ep2out:     ; Fix up BD4STAT.
             movlw 0x90
             movwf FSR0L
 
-            btfsc cmdlen, 1 ; >= 2
+            movlw 0x21
+            movwf FSR1H
+            movwf BD5ADRH
+            movlw 0xB0
+            movwf FSR1L
+            movwf BD5ADRL
+
+            btfsc ep2olen, 1 ; >= 2
               *bra _ep2o3
-            btfsc cmdlen, 0 ; == 1
+            btfsc ep2olen, 0 ; == 1
               *bra _ep2o2
 
 _ep2o1:     btfsc INDF0, 7
@@ -367,7 +390,7 @@ _ep2o1:     btfsc INDF0, 7
             btfss INDF0, 6 ; end of command
               *goto cmd1_ser_rw
 
-            incf cmdlen
+            incf ep2olen
 
             addfsr FSR0, 1
             decf BD4CNT
@@ -382,7 +405,7 @@ _ep2o2:     btfss INDF0, 7
             btfss INDF0, 6 ; end of command
               *goto cmd2
 
-            incf cmdlen
+            incf ep2olen
 
             addfsr FSR0, 1
             decf BD4CNT
@@ -397,7 +420,7 @@ _ep2o3:     btfss INDF0, 7
             btfss INDF0, 6 ; end of command
               *goto cmd3
 
-_ep2onext:  clrf cmdlen
+_ep2onext:  clrf ep2olen
 
             addfsr FSR0, 1
             decfsz BD4CNT
@@ -407,6 +430,47 @@ _ep2out:    movlw 32
             movwf BD4CNT
 
             bsf BD4STAT, 7 ; UOWN = SIE
+
+            btfsc BD5STAT, 7
+              *bra infull
+
+            ; ep2ilen = BD5CNT = FSR1L - BD5ADRL
+            movf BD5ADRL, 0
+            subwf FSR1L, 0
+            ;movlw 32 ; !!! debug !!!
+            movwf ep2ilen
+            movwf BD5CNT
+
+            bsf BD5STAT, 7 ; UOWN = SIE
+
+            retfie
+
+infull:     bsf LATC, 2 ; !!! debug !!!
+            retfie
+
+
+ep2in:      ; Fix BD5STAT.
+            movlw 0n01000000
+            andwf BD5STAT
+            bsf BD5STAT, 3 ; DTSEN
+
+            ; Toggle DTS.
+            movlw 0n01000000 ; DTS mask
+            xorwf BD5STAT
+
+            ; ep2ilen -= BD5CNT
+            movf BD5CNT, 0
+            subwf ep2ilen
+            btfsc STATUS, 2 ; Z
+              retfie
+
+            ; BD5ADR[H:L] += BD5CNT
+            movf BD5CNT, 0
+            addwf BD5ADRL
+            movlw 0
+            addwfc BD5ADRH
+
+            bsf BD5STAT, 7 ; UOWN = SIE
 
             retfie
 
@@ -467,11 +531,7 @@ ep0outsta:  bsf BD0STAT, 6 ; DTS = 1
             bra _ep0out
 
 
-ep0in:      ; Clear interrupt flags.
-            bcf UIR, 3 ; TRNIF
-            bcf PIR2, 2 ; USBIF
-
-            ; If in write mode...
+ep0in:      ; If in write mode...
             btfsc ep0state, 0
               *bra ctrlwait
 
@@ -681,6 +741,10 @@ ctrl_set_configuration:
             movlw 3 ; = configured
             movwf usbstate
 
+            clrf ep2olen
+            clrf Qmode ; idle level = 0, sample edge = first
+            clrf ep2ilen
+
             movlw 0n00011110
             movwf UEP1
             movwf UEP2
@@ -698,10 +762,6 @@ ctrl_set_configuration:
             movlw 32
             movwf BD2CNT
 
-            movlw 0x21
-            movwf BD3ADRH
-            movlw 0x60
-            movwf BD3ADRL
             clrf BD3CNT
 
             movlw 0x21
@@ -711,10 +771,6 @@ ctrl_set_configuration:
             movlw 32
             movwf BD4CNT
 
-            movlw 0x21
-            movwf BD5ADRH
-            movlw 0xB0
-            movwf BD5ADRL
             clrf BD5CNT
 
             bsf BD2STAT, 7 ; UOWN = SIE
@@ -752,6 +808,11 @@ _ctrlwait:  ; address = 0x20A0 linear (0x120 trad)
 cmd1_ser_rw:
             movf S0, 0
             movwf U0
+
+            andlw 0n00111111
+            btfss BD5STAT, 7 ; UOWN
+              movwi FSR1++
+
             movlw 6
             call serial_rw
 
@@ -929,8 +990,6 @@ init:       clrf BD2STAT
             clrf UEP2
             clrf ep0state ; = waiting
             clrf ep0post
-            clrf cmdlen
-            clrf Qmode ; idle level = 0, sample edge = first
             return
 
 
