@@ -6,7 +6,7 @@ from sys import argv
 
 def main(Fcy, Td, depth):
     Tcy = 1 / Fcy
-    nT = Td / Tcy - 7
+    nT = Td / Tcy
     print("Target cycle count = {}".format(nT))
     c = []
     c = [1] * depth
@@ -19,7 +19,7 @@ def main(Fcy, Td, depth):
         for i in range(1, depth):
             n = (n + 3) * c[i] + 1
         n += 3
-        if bn < n < nT:
+        if bn < n <= nT:
             bn = n
             bc = c[:]
         while True:
