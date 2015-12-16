@@ -1129,6 +1129,44 @@ delay250n417n:
             return
 
 
+; target: 120.00 cyc/loop (1e-05 s/loop)
+; actual: 120 cyc/loop (1e-05 s/loop)
+; overhead: 6 cyc (5e-07 s)
+; c = [39], w = 0
+delay10u500n:
+            movwf U7
+_d1u5n7:    movlw 39
+_d1u5nw:    decfsz WREG
+              *bra _d1u5nw
+            decfsz U7
+              *bra _d1u5n7
+            return
+
+
+; target: 12000.00 cyc/loop (0.001 s/loop)
+; actual: 12000 cyc/loop (0.001 s/loop)
+; overhead: 6 cyc (5e-07 s)
+; c = [221, 18], w = 8
+delay1m500n:
+            movwf U7
+_d1m5n7:    movlw 221
+            movwf U6
+_d1m5n6:    movlw 18
+_d1m5nw:    decfsz WREG
+              *bra _d1m5nw
+            decfsz U6
+              *bra _d1m5n6
+            nop
+            nop
+            nop
+            nop
+            nop
+            nop
+            nop
+            nop
+            decfsz U7
+              *bra _d1m5n7
+            return
 
 
 serial_rw:  movwf U2
