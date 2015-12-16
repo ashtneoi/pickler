@@ -84,10 +84,15 @@ def main(Fcy, Td, depth):
         exit(1)
 
     stdout.write((
-        "; target: {} cyc ({} s)\n"
-        "; actual: {} cyc ({} s)\n"
+        "; target: {:.2f} cyc/loop ({:.6g} s/loop)\n"
+        "; actual: {} cyc/loop ({:.6g} s/loop)\n"
+        "; overhead: {} cyc ({:.6g} s)\n"
         "; c = {}, w = {}\n"
-    ).format(nT, Td, round(nT), Tcy * round(nT), bc, w))
+    ).format(
+        nT, Td,
+        round(nT), Tcy * round(nT),
+        6, 6 * Tcy,
+        bc, w))
     stdout.write(gen_code(bc, w))
 
 
