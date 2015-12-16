@@ -906,14 +906,14 @@ cmd2_delay: movf S0, 0
             iorwf U0
 
             movf U0, 0
-            call delay250n417
+            call delay250n417n
 
             movlp _ep2onext
             btfss S1, 4 ; T8 == 0
               *goto _ep2onext
 
             movf U0, 0
-            call delay250n417
+            call delay250n417n
 
             bra _ep2onext
 
@@ -1066,10 +1066,6 @@ _hfwait:    *btfss OSCSTAT, 0 ; HFIOFS
 _pllwait:   *btfss OSCSTAT, 6 ; PLLRDY
               *bra _pllwait ; (Interrupts are disabled.)
 
-            ;;; Send initial debug byte. ;;;
-
-            call delayx
-
             ;;; Set up USB module. ;;;
 
             clrf usbstate ; = powered
@@ -1127,20 +1123,12 @@ _us:        *btfss PIR1, 4 ; TXIF
             return
 
 
-delayx:     movlw 0xFF
-            movwf 0x70
-_d1:        movlw 0xFF
-_d2:        decfsz WREG
-              *bra _d2
-            decfsz 0x70
-              *bra _d1
-            return
-
-
-delay250n417:
+delay250n417n:
             decfsz WREG
-              *bra delay250n417
+              *bra delay250n417n
             return
+
+
 
 
 serial_rw:  movwf U2
