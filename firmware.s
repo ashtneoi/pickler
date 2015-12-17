@@ -432,20 +432,16 @@ _ep2out:    movlw 32
             bsf BD4STAT, 7 ; UOWN = SIE
 
             btfsc BD5STAT, 7
-              *bra infull
+              retfie
 
             ; ep2ilen = BD5CNT = FSR1L - BD5ADRL
             movf BD5ADRL, 0
             subwf FSR1L, 0
-            ;movlw 32 ; !!! debug !!!
             movwf ep2ilen
             movwf BD5CNT
 
             bsf BD5STAT, 7 ; UOWN = SIE
 
-            retfie
-
-infull:     bsf LATC, 2 ; !!! debug !!!
             retfie
 
 
@@ -742,8 +738,18 @@ ctrl_set_configuration:
             movwf usbstate
 
             clrf ep2olen
-            clrf Qmode ; idle level = 0, sample edge = first
             clrf ep2ilen
+
+            ; sample edge = rising, QCLK direction = in
+            movlw 0n00000100
+            movwf Qmode
+
+            bsf TRISA, 4 ; QCLK dir = in
+            bsf TRISA, 5 ; QDAT dir = in
+            bsf TRISC, 3 ; Q0 dir = in
+
+            bsf LATA, 4 ; QCLK = 1
+            bcf LATC, 3 ; Q0 = 0
 
             movlw 0n00011110
             movwf UEP1
@@ -877,11 +883,11 @@ cmd2_par:   movlp _ep2onext
             btfsc S1, 4 ; h
               *goto _ep2onext
 
-            movf LATC, 0
-            bcf WREG, 3
-            btfsc S0, 0 ; v0
-              bsf WREG, 3
-            movwf LATC
+            movlb LATC
+            btfsc S0, 0 ; v0 == 1
+              *bsf LATC, 3
+            btfss S0, 0 ; v0 == 0
+              *bcf LATC, 3
 
             bra _ep2onext
 
@@ -889,11 +895,11 @@ cmd2_pard:  movlp _ep2onext
             btfsc S1, 4 ; h
               *goto _ep2onext
 
-            movf TRISC, 0
-            bcf WREG, 3
-            btfsc S0, 0 ; t0
-              bsf WREG, 3
-            movwf TRISC
+            movlb TRISC
+            btfsc S0, 0 ; t0 == 1
+              *bsf TRISC, 3
+            btfss S0, 0 ; t0 == 0
+              *bcf TRISC, 3
 
             bra _ep2onext
 
@@ -918,27 +924,37 @@ cmd2_delay: movf S0, 0
             bra _ep2onext
 
 
-cmd2_ser_r: bra _ep2onext
+cmd2_ser_r: movf S1, 0
+            andlw 0n00000111
+            addwf WREG, 0
+            addlw 6
+            call serial_r
+
+            movf U0, 0
+            btfss BD5STAT, 7 ; UOWN
+              movwi FSR1++
+            movf U1, 0
+            btfss BD5STAT, 7 ; UOWN
+              movwi FSR1++
+
+            bra _ep2onext
 
 
 cmd2_smode: movf S1, 0
-            andlw 0n00000011
+            andlw 0n00000111
             movwf Qmode
 
-            movf LATA, 0
-            bsf WREG, 4
-            btfsc Qmode, 0 ; e == 1
-              bcf WREG, 4
-            movwf LATA
+            movlb LATA
+            btfsc S1, 0 ; e == 1 (falling)
+              *bcf LATA, 4
+            btfss S1, 0 ; e == 0 (rising)
+              *bsf LATA, 4
 
-            movf TRISA, 0
-            bcf WREG, 4
-            bcf WREG, 5
-            btfsc S1, 2 ; t
-              bsf WREG, 4
-            btfsc S1, 2 ; t
-              bsf WREG, 5
-            movwf TRISA
+            movlb TRISA
+            btfsc S1, 2 ; t == 1
+              *bsf TRISA, 4
+            btfss S1, 2 ; t == 0
+              *bcf TRISA, 4
 
             bra _ep2onext
 
@@ -1023,8 +1039,7 @@ start:      ;;; Set up clock. ;;;
             ;      (RX) RC5: in (digital)
 
             clrf LATA
-            movlw 0n00001000
-            movwf LATC
+            clrf LATC
 
             movlw 0n11111111
             movwf TRISA
@@ -1169,7 +1184,9 @@ _d1m5nw:    decfsz WREG
             return
 
 
-serial_rw:  movwf U2
+serial_rw:  movwf U7
+
+            bcf TRISA, 5 ; QDAT dir = out
 
             btfsc Qmode, 0 ; e == 1 (falling)
               *bra _srw1
@@ -1183,11 +1200,17 @@ _srw0lp:    lsrf U1
             btfsc STATUS, 0 ; C
               bsf WREG, 5
             *movwf LATA ; setup
-            decfsz U2
+            decfsz U7
               *bra _srw0lp
             nop
             nop
-            *bsf LATA, 4
+            *bsf LATA, 4 ; latch
+            nop
+            nop
+            nop
+            nop
+
+            bsf TRISA, 5 ; QDAT dir = in
             return
 
 _srw1:      movf LATA, 0
@@ -1199,11 +1222,66 @@ _srw1lp:    lsrf U1
             btfsc STATUS, 0 ; C
               bsf WREG, 5
             *movwf LATA ; setup
-            decfsz U2
+            decfsz U7
               *bra _srw1lp
             nop
             nop
-            *bcf LATA, 4
+            *bcf LATA, 4 ; latch
+            nop
+            nop
+            nop
+            nop
+
+            bsf TRISA, 5 ; QDAT dir = in
+            return
+
+
+serial_r:   movwf U7
+            sublw 16
+            addlw 1
+            movwf U6
+            movlb PORTA
+
+            btfsc Qmode, 0 ; e == 1 (falling)
+              *bra _sr1
+
+_sr0:       *bsf PORTA, 4 ; latch
+            *movf PORTA, 0
+            bcf STATUS, 0 ; C
+            btfsc WREG, 5
+              bsf STATUS, 0 ; C
+            nop
+            *bcf PORTA, 4 ; setup
+            rrf U1
+            rrf U0
+            decfsz U7
+              *bra _sr0
+            nop
+            *bsf PORTA, 4 ; latch
+            *movf PORTA, 0
+
+            bra _srf
+
+_sr1:       *bcf PORTA, 4 ; latch
+            *movf PORTA, 0
+            bcf STATUS, 0 ; C
+            btfsc WREG, 5
+              bsf STATUS, 0 ; C
+            nop
+            *bsf PORTA, 4 ; setup
+            rrf U1
+            rrf U0
+            decfsz U7
+              *bra _sr0
+            nop
+            *bcf PORTA, 4 ; latch
+            *movf PORTA, 0
+
+_srf:       rrf U1
+            rrf U0
+            decfsz U6
+              *bra _srf
+
             return
 
 
