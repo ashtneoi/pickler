@@ -1274,7 +1274,11 @@ serial_r:   bsf LATC, 2
 
             movwf U7
             sublw 16
+            addlw 1
             movwf U6
+
+            clrf U1
+            clrf U0
 
             movf Qmode, 0
             movlb PORTA
@@ -1316,11 +1320,12 @@ _sr1:       *bcf PORTA, 4 ; latch
 _srf:       bcf STATUS, 0 ; C
             btfsc WREG, 5
               bsf STATUS, 0 ; C
-            rrf U1
+_srf2:      rrf U1
             rrf U0
             decfsz U6
-              *bra _srf
+              *bra _srf2
             bcf LATC, 2
+
             return
 
 
