@@ -740,16 +740,7 @@ ctrl_set_configuration:
             clrf ep2olen
             clrf ep2ilen
 
-            ; sample edge = rising, QCLK direction = in
-            movlw 0n00000100
-            movwf Qmode
-
-            bsf TRISA, 4 ; QCLK dir = in
-            bsf TRISA, 5 ; QDAT dir = in
-            bsf TRISC, 3 ; Q0 dir = in
-
-            bsf LATA, 4 ; QCLK = 1
-            bcf LATC, 3 ; Q0 = 0
+            call Qreset
 
             movlw 0n00011110
             movwf UEP1
@@ -839,10 +830,16 @@ cmd2:       btfsc S1, 5
             swapf S0, 0
             movwf U1
 
+            movf U0, 0
+            btfss BD5STAT, 7 ; UOWN
+              movwi FSR1++
+            movf U1, 0
+            btfss BD5STAT, 7 ; UOWN
+              movwi FSR1++
+
             movlw 8
             btfsc S1, 4 ; w == 1
               movlw 10
-
             call serial_rw
 
             bra _ep2onext
@@ -873,6 +870,14 @@ cmd2_ext_b: movf S0, 0
             ; 1
             btfsc STATUS, 2 ; Z
               *bra cmd2_smode
+            decf WREG
+            ; 2
+            btfsc STATUS, 2 ; Z
+              *bra cmd2_reset
+            decf WREG
+            ; 3
+            btfsc STATUS, 2 ; Z
+              *bra cmd2_srb_rw
             ; other
 
             addfsr FSR0, 1
@@ -959,6 +964,24 @@ cmd2_smode: movf S1, 0
             bra _ep2onext
 
 
+cmd2_reset: call Qreset
+
+            bra _ep2onext
+
+
+cmd2_srb_rw:
+            movf S1, 0
+            movwf U0
+
+            btfss BD5STAT, 7 ; UOWN
+              movwi FSR1++
+
+            movlw 1
+            call serial_rw
+
+            bra _ep2onext
+
+
 cmd3:       btfsc S2, 6
               *bra cmd3_ext
 
@@ -983,6 +1006,13 @@ cmd3:       btfsc S2, 6
             lslf WREG
             lslf WREG
             iorwf U1
+
+            movf U0, 0
+            btfss BD5STAT, 7 ; UOWN
+              movwi FSR1++
+            movf U1, 0
+            btfss BD5STAT, 7 ; UOWN
+              movwi FSR1++
 
             movlw 12
             btfsc S1, 4
@@ -1184,7 +1214,9 @@ _d1m5nw:    decfsz WREG
             return
 
 
-serial_rw:  movwf U7
+serial_rw:  bsf LATC, 2
+
+            movwf U7
 
             bcf TRISA, 5 ; QDAT dir = out
 
@@ -1211,6 +1243,7 @@ _srw0lp:    lsrf U1
             nop
 
             bsf TRISA, 5 ; QDAT dir = in
+            bcf LATC, 2
             return
 
 _srw1:      movf LATA, 0
@@ -1233,16 +1266,19 @@ _srw1lp:    lsrf U1
             nop
 
             bsf TRISA, 5 ; QDAT dir = in
+            bcf LATC, 2
             return
 
 
-serial_r:   movwf U7
-            sublw 16
-            addlw 1
-            movwf U6
-            movlb PORTA
+serial_r:   bsf LATC, 2
 
-            btfsc Qmode, 0 ; e == 1 (falling)
+            movwf U7
+            sublw 16
+            movwf U6
+
+            movf Qmode, 0
+            movlb PORTA
+            btfsc WREG, 0 ; e == 1 (falling)
               *bra _sr1
 
 _sr0:       *bsf PORTA, 4 ; latch
@@ -1272,15 +1308,28 @@ _sr1:       *bcf PORTA, 4 ; latch
             rrf U1
             rrf U0
             decfsz U7
-              *bra _sr0
+              *bra _sr1
             nop
             *bcf PORTA, 4 ; latch
             *movf PORTA, 0
 
-_srf:       rrf U1
+_srf:       bcf STATUS, 0 ; C
+            btfsc WREG, 5
+              bsf STATUS, 0 ; C
+            rrf U1
             rrf U0
             decfsz U6
               *bra _srf
+            bcf LATC, 2
+            return
+
+
+Qreset:     ; QCLK direction = in
+            bsf Qmode, 2
+
+            bsf TRISA, 4 ; QCLK dir = in
+            bsf TRISA, 5 ; QDAT dir = in (just in case)
+            bsf TRISC, 3 ; Q0 dir = in
 
             return
 
